@@ -1,6 +1,6 @@
-#Proposta de Trabalho
+# Proposta de Trabalho #
 
-###Proposta de Trabalho Final: 
+### Proposta de Trabalho Final: ### 
 AI.Gamer
 -----------
 ###Alunos: 
