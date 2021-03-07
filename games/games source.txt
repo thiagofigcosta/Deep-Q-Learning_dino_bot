@@ -1,0 +1,16 @@
+flash games downloaded from http://www.clickjogos.com.br/ 
+    http://www.clickjogos.com.br/jogos/flappy-bird/
+    http://www.clickjogos.com.br/jogos/monoliths-mario-world-3/
+    http://www.clickjogos.com.br/Jogos-online/Acao-e-Aventura/Flash-Sonic/
+    http://www.clickjogos.com.br/Jogos-online/Acao-e-Aventura/Super-Mario-Flash-20/
+
+
+sprites sheets:
+    https://www.spriters-resource.com/snes/killerinstinct/
+
+
+killerinstinct:
+    https://wowroms.com/en/roms/super-nintendo/download-killer-instinct-usa/28144.html
+
+SNES emu:
+    https://www.snes9x.com/
