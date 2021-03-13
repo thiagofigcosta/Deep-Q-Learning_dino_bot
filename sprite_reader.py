@@ -54,27 +54,32 @@ def auto_canny(image,sigma=0.33):
 def resizeImg(img,width):
     return cv2.resize(img,(width,int(width*img.shape[0]/img.shape[1])))
 
+def resizeImgH(img,height):
+    return cv2.resize(img,(int(height*img.shape[1]/img.shape[0]),height))
+
 def getContoursOfImage(img,show_edges=False,name='Image',detect_edges=False,display_size=None):
     img_edges=auto_canny(img) # edge detection
     if show_edges:
         to_show=img_edges.copy()
         if display_size !=None:
-            to_show=resizeImg(to_show,display_size)
+            to_show=resizeImgH(to_show,display_size)
         cv2.imshow('{} - edge'.format(name), to_show)
     cnts,hierarchy=cv2.findContours(img_edges,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
     return cnts
 
-def checkIfRectanglesIntersects(x_0,y_0,w_0,h_0,x_1,y_1,w_1,h_1):
-    x0_0=x_0
-    x1_0=x_0+w_0
-    y0_0=y_0
-    y1_0=y_0+h_0
-    rec_0={'x0':x0_0,'x1':x1_0,'y0':y0_0,'y1':y1_0,'w':w_0,'h':h_0}
-    x0_1=x_1
-    x1_1=x_1+w_1
-    y0_1=y_1
-    y1_1=y_1+h_1
-    rec_1={'x0':x0_1,'x1':x1_1,'y0':y0_1,'y1':y1_1,'w':w_1,'h':h_1}
+def checkIfRectanglesIntersects(rec_a,rec_b,offset=0):
+    rec_0=rec_a.copy()
+    rec_1=rec_b.copy()
+    if (offset>0):
+        offset=int(offset/2)
+        rec_0['x0']-=offset
+        rec_0['y0']-=offset
+        rec_0['x1']+=offset
+        rec_0['y1']+=offset
+        rec_1['x0']-=offset
+        rec_1['y0']-=offset
+        rec_1['x1']+=offset
+        rec_1['y1']+=offset
     left_rec=None
     right_rec=None
     if rec_0['x0'] < rec_1['x0']:
@@ -86,98 +91,106 @@ def checkIfRectanglesIntersects(x_0,y_0,w_0,h_0,x_1,y_1,w_1,h_1):
     top_rec=None
     low_rec=None
     if rec_0['y0'] < rec_1['y0']:
-        top_rec=rec_1
-        low_rec=rec_0
-    else:
         top_rec=rec_0
         low_rec=rec_1
-    # if (left_rec['x1'] <= right_rec['x0']) or (low_rec['y1'] <= top_rec['y0']):
-    #     return 0 # does not overlap
-    # elif (left_rec['x1'] <= right_rec['x1']) or (low_rec['y1'] <= top_rec['y1']): 
-    #     if w_0 > w_1 or h_0 > h_1:
-    #         return 2 # full overlap, contains - 0 is bigger
-    #     else:
-    #         return 3 # full overlap, contains - 1 is bigger
-    # else: 
-    #     return 1 # intersect
-    if (rec_1['x1'] > rec_0['x0'] and rec_1['x1'] < rec_0['x1']) or (rec_1['x0'] > rec_0['x0'] and rec_1['x0'] < rec_0['x1']):
-        x_match = True
     else:
-        x_match = False
-    if (rec_1['y1'] > rec_0['y0'] and rec_1['y1'] < rec_0['y1']) or (rec_1['y0'] > rec_0['y0'] and rec_1['y0'] < rec_0['y1']):
-        y_match = True
-    else:
-        y_match = False
-    if x_match and y_match:
-        return True
-    else:
-        return False
+        top_rec=rec_1
+        low_rec=rec_0
+    if (left_rec['x1'] < right_rec['x0']) or (low_rec['y0'] > top_rec['y1']):
+        return 0 # does not overlap
+    elif (left_rec['x1'] > right_rec['x1']) or (low_rec['y1'] < top_rec['y1']): 
+        if rec_0['w'] >= rec_1['w'] or rec_0['h'] >= rec_1['h']:
+            return 2 # full overlap, contains - 0 is bigger
+        else:
+            return 3 # full overlap, contains - 1 is bigger
+    else: 
+        return 1 # intersect
 
-def getBiggestRec(x_0,y_0,w_0,h_0,x_1,y_1,w_1,h_1):
-    x0_0=x_0
-    x1_0=x_0+w_0
-    y0_0=y_0
-    y1_0=y_0+h_0
-    rec_0={'x0':x0_0,'x1':x1_0,'y0':y0_0,'y1':y1_0,'w':w_0,'h':h_0}
-    x0_1=x_1
-    x1_1=x_1+w_1
-    y0_1=y_1
-    y1_1=y_1+h_1
-    rec_1={'x0':x0_1,'x1':x1_1,'y0':y0_1,'y1':y1_1,'w':w_1,'h':h_1}
-    small_x=None
-    big_x=None
-    if rec_0['x0'] < rec_1['x0']:
-        small_x=rec_0['x0']
-    else:
-        small_x=rec_1['x0']
-    if rec_0['x1'] > rec_1['x1']:
-        big_x=rec_0['x1']
-    else:
-        big_x=rec_1['x1']
-    small_y=None
-    big_y=None
-    if rec_0['y0'] < rec_1['y0']:
-        small_y=rec_0['y0']
-    else:
-        small_y=rec_1['y0']
-    if rec_0['y1'] > rec_1['y1']:
-        big_y=rec_0['y1']
-    else:
-        big_y=rec_1['y1']
-    return small_x,small_y,big_x-small_x,big_y-small_y
+def getEquivalentRectangles(rec_0,rec_1):
+    equivalent=[]
+    collision=checkIfRectanglesIntersects(rec_0,rec_1,offset=4)
+    if collision==0:
+        equivalent.append(rec_0)
+        equivalent.append(rec_1)
+    elif collision==1:
+        x_0=None
+        x_1=None
+        if rec_0['x0'] < rec_1['x0']:
+            x_0=rec_0['x0']
+        else:
+            x_0=rec_1['x0'] 
+        if rec_0['x1'] > rec_1['x1']:
+            x_1=rec_0['x1']
+        else:
+            x_1=rec_1['x1'] 
+        y_0=None
+        y_1=None
+        if rec_0['y0'] < rec_1['y0']:
+            y_0=rec_0['y0']
+        else:
+            y_0=rec_1['y0'] 
+        if rec_0['y1'] > rec_1['y1']:
+            y_1=rec_0['y1']
+        else:
+            y_1=rec_1['y1']
+        equivalent.append(pointAndSizeToRectangle(x_0,y_0,(x_1-x_0),(y_1-y_0)))
+    elif collision==2:
+        equivalent.append(rec_0)
+    elif collision==3:
+        equivalent.append(rec_1)
+    return equivalent
 
-def simplifyOverlappingContours(cnts):
-    final_boundaries=[]
-    already_simplified=set()
-    for i,cnt_a in enumerate(cnts):
-        if i not in already_simplified:
-            x_0,y_0,w_0,h_0=cv2.boundingRect(cnt_a)
-            for j,cnt_b in enumerate(cnts):
-                if j>i and j not in already_simplified:
-                    x_1,y_1,w_1,h_1=cv2.boundingRect(cnt_b)
-                    case=checkIfRectanglesIntersects(x_0,y_0,w_0,h_0,x_1,y_1,w_1,h_1)
-                    if case:
-                        already_simplified.add(j) # ignores j
-                        x_0,y_0,w_0,h_0=getBiggestRec(x_0,y_0,w_0,h_0,x_1,y_1,w_1,h_1)
-                    # if case==0:
-                    #     pass # ignore
-                    # elif case==1:
-                    #     already_simplified.add(j) # ignores j
-                    #     x_0,y_0,w_0,h_0=getBiggestRec(x_0,y_0,w_0,h_0,x_1,y_1,w_1,h_1)
-                    # elif case==2:
-                    #     already_simplified.add(j) # ignores j
-                    # elif case==3:
-                    #     already_simplified.add(j) # ignores j
-                    #     x_0=x_1
-                    #     y_0=y_1
-                    #     w_0=w_1
-                    #     h_0=h_1
-            already_simplified.add(i)
-            final_boundaries.append((x_0,y_0,w_0,h_0))
-    return final_boundaries
+def pointAndSizeToRectangle(x,y,w,h):
+    rec={'x0':int(x),'x1':int(x+w),'y0':int(y),'y1':int(y+h),'w':int(w),'h':int(h)}
+    return rec
+
+def contoursToRectangles(cnts):
+    recs=[]
+    for cnt in cnts:
+        x,y,w,h=cv2.boundingRect(cnt)
+        rec=pointAndSizeToRectangle(x,y,w,h)
+        recs.append(rec)
+    return recs
+
+
+def enlargeRec(rec,offset):
+    if (offset>0):
+        offset=int(offset/2)
+        rec['x0']-=offset
+        rec['y0']-=offset
+        rec['x1']+=offset
+        rec['y1']+=offset
+    return rec
+
+def simplifyOverlappingRectangles(recs):
+    final_recs=[]
+    already_simplified_indexes=set()
+    for i,rec_0 in enumerate(recs):
+        if i not in already_simplified_indexes:
+            go_again=True
+            while go_again:
+                go_again=False
+                for j,rec_1 in enumerate(recs):
+                    if j>i and j not in already_simplified_indexes:
+                        eq=getEquivalentRectangles(rec_0,rec_1)
+                        if len(eq)==1:
+                            rec_0=eq[0]
+                            already_simplified_indexes.add(j)
+                            go_again=True
+                            break
+            final_recs.append(rec_0)
+    return final_recs
+
+def filterSmallRecs(recs,min_area,min_w,min_h):
+    final_recs=[]
+    for rec in recs:
+        if rec['w']*rec['h']>=min_area and rec['w']>=min_w and rec['h']>=min_h:
+            final_recs.append(rec)
+    return final_recs
 
 def loadSpriteSheet(path,threshold=1,display=False):
-    display_size=800
+    sprites=[]
+    display_size=600
     thickness=2
     sprite_name=getFilename(path)
     img_spr_sheet=cv2.imread(path)
@@ -186,31 +199,35 @@ def loadSpriteSheet(path,threshold=1,display=False):
     img_spr_sheet_bin=greyToBinary(img_spr_sheet_bin,threshold)
     img_spr_sheet_bin=morphologicalTransformation(img_spr_sheet_bin,kernel_size=3)
     if display:
-        to_show=resizeImg(img_spr_sheet_bin,display_size)
+        to_show=resizeImgH(img_spr_sheet_bin,display_size)
         cv2.imshow('{} - bin'.format(sprite_name), to_show)
     contours=getContoursOfImage(img_spr_sheet_bin,show_edges=display,name=sprite_name,display_size=display_size)
-    print('Contours before simplify: {}'.format(len(contours)))
-    # color=(0,255,0)
-    # for cnt_bnd in contours:
-    #     x,y,w,h=cv2.boundingRect(cnt_bnd)
-    #     img_single_sprite=img_spr_sheet[y:y+h][x:x+w]
-    #     cv2.rectangle(img_spr_sheet,(x,y),(x+w,y+h),color, thickness)
-    contours_boundaries=simplifyOverlappingContours(contours)
-    print('Contours after simplify: {}'.format(len(contours_boundaries)))
+    recs=contoursToRectangles(contours)
+    print('Contours before simplify: {}'.format(len(recs)))
+    recs=simplifyOverlappingRectangles(recs)
+    recs=filterSmallRecs(recs,250,20,20)
+    print('Contours after simplify: {}'.format(len(recs)))
     color=(255,0,0)
-    for cnt_bnd in contours_boundaries:
-        x,y,w,h=cnt_bnd
-        img_single_sprite=img_spr_sheet[y:y+h][x:x+w]
+    for rec in recs:
+        rec=enlargeRec(rec,4)
+        x,y,w,h=rec['x0'],rec['y0'],rec['w'],rec['h']
+        img_single_sprite=img_spr_sheet[y:y+h][x:x+w].copy()
+        sprites.append(img_single_sprite)
         cv2.rectangle(img_spr_sheet,(x,y),(x+w,y+h),color, thickness)
     if display:
-        to_show=resizeImg(img_spr_sheet,display_size)
+        to_show=resizeImgH(img_spr_sheet,display_size)
         cv2.imshow('{} - raw with contours'.format(sprite_name), to_show)
     if display:
         cv2.waitKey()
+    return sprites
 
-def main(argv):
-    path='games/sprites/killer_instinct/Cinder.png'
-    loadSpriteSheet(path,display=True)
 
-if __name__=='__main__':
-    main(sys.argv[1:])
+def loadAllKillerInstinctSpriteSheets():
+    sprites={}
+    base_path='games/sprites/killer_instinct/'
+    extension='.png'
+    sprite_sheets=['Cinder','Combo','Eyedol','Fulgore','Glacius','Jago','Orchid','Riptor','Sabrewulf','Spinal','Thunder']
+    for sprite_sheet in sprite_sheets:
+        path=base_path+sprite_sheet+extension
+        sprites[sprite_sheet]=loadSpriteSheet(path)
+    return sprites
