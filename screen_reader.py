@@ -33,7 +33,7 @@ def setup():
     drawing=False
     selected_square=False
     delay=3
-    print('Taking screenshot after {} seconds'.format(delay))
+    print('Taking screenshot in {} seconds'.format(delay))
     time.sleep(delay)
     screen=cv2.cvtColor(np.array(pyautogui.screenshot()), cv2.COLOR_RGB2BGR)
     screen_bkp=screen.copy()
@@ -43,13 +43,6 @@ def setup():
         cv2.setMouseCallback('screen',draw_rect)
         cv2.imshow('screen',screen)
         cv2.waitKey(1)
-    print('Found game screen ({}, {}), ({}, {})'.format(x0,y0,x1,y1))
-    screen=screen_bkp.copy()
-    cv2.rectangle(screen,(x0,y0),(x1,y1),(0,255,0),2)
-    cv2.imshow('screen',screen)
-    time.sleep(1)
-    cv2.destroyWindow('screen')
-    cv2.waitKey(1)
     if x1<x0:
         tmp=x0
         x0=x1
@@ -58,9 +51,21 @@ def setup():
         tmp=y0
         y0=y1
         y1=tmp
+    print('Found game screen ({}, {}), ({}, {})'.format(x0,y0,x1,y1))
+    screen=screen_bkp.copy()
+    cv2.rectangle(screen,(x0,y0),(x1,y1),(0,255,0),2)
+    cv2.imshow('screen',screen)
+    time.sleep(1)
+    cv2.destroyWindow('screen')
+    cv2.waitKey(1)
     return pointsToRectangle(x0,y0,x1,y1)
 
 
-def captureScreen(area_rec):
-    screen=cv2.cvtColor(np.array(pyautogui.screenshot()), cv2.COLOR_RGB2BGR)
-    return screen[area_rec['y0']:area_rec['y1'],area_rec['x0']:area_rec['x1']]
+def captureScreen(area_rec,grey=False):
+    screen=np.array(pyautogui.screenshot())
+    screen=screen[area_rec['y0']:area_rec['y1'],area_rec['x0']:area_rec['x1']]
+    if grey:
+        screen=cv2.cvtColor(screen, cv2.COLOR_RGB2GRAY)
+    else:
+        screen=cv2.cvtColor(screen, cv2.COLOR_RGB2BGR)
+    return screen 

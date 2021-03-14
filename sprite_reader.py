@@ -1,6 +1,6 @@
 #!/bin/python
 
-import cv2,sys,time,math,os
+import cv2,sys,time,math,os,json,codecs,zlib
 import random as rd
 import numpy as np
 
@@ -26,6 +26,21 @@ def clearBackground(img,color_to_find,color_to_replace=(255,255,255)):
                     break
             if equal:
                 img[i][j]=color_to_replace
+    return img
+
+def noisyBackground(img,color_to_find):
+    for i in range(img.shape[0]):
+        for j in range(img.shape[1]):
+            equal=True
+            for k in range(len(color_to_find)):
+                if img[i][j][k]!=color_to_find[k]:
+                    equal=False
+                    break
+            if equal:
+                if bool(rd.getrandbits(1)):
+                    img[i][j]=(0,0,0)
+                else:
+                    img[i][j]=(255,255,255)
     return img
 
 def getFilename(path,include_ext=False):
@@ -188,15 +203,15 @@ def filterSmallRecs(recs,min_area,min_w,min_h):
             final_recs.append(rec)
     return final_recs
 
-def loadSpriteSheet(path,threshold=1,display=False):
+def loadSpriteSheet(path,threshold=1,display=False,grey=False):
     sprites=[]
     display_size=600
     thickness=2
     sprite_name=getFilename(path)
-    img_spr_sheet=cv2.imread(path)
-    img_spr_sheet=clearBackground(img_spr_sheet,[255,0,255])
-    img_spr_sheet_bin=cv2.cvtColor(img_spr_sheet.copy(),cv2.COLOR_BGR2GRAY)
-    img_spr_sheet_bin=greyToBinary(img_spr_sheet_bin,threshold)
+    img_spr_sheet_raw=cv2.imread(path) 
+    img_spr_sheet=clearBackground(img_spr_sheet_raw.copy(),[255,0,255])
+    img_spr_sheet_grey=cv2.cvtColor(img_spr_sheet,cv2.COLOR_BGR2GRAY)
+    img_spr_sheet_bin=greyToBinary(img_spr_sheet_grey,threshold)
     img_spr_sheet_bin=morphologicalTransformation(img_spr_sheet_bin,kernel_size=3)
     if display:
         to_show=resizeImgH(img_spr_sheet_bin,display_size)
@@ -207,13 +222,22 @@ def loadSpriteSheet(path,threshold=1,display=False):
     recs=simplifyOverlappingRectangles(recs)
     recs=filterSmallRecs(recs,250,20,20)
     print('Contours after simplify: {}'.format(len(recs)))
+    img_spr_sheet_noisy=noisyBackground(img_spr_sheet_raw,[255,0,255])
+    if grey:
+        img_spr_sheet_to_cut=cv2.cvtColor(img_spr_sheet_noisy,cv2.COLOR_BGR2GRAY)
+    else:
+        img_spr_sheet_to_cut=img_spr_sheet_noisy
+    if display:
+        to_show=resizeImgH(img_spr_sheet_to_cut,display_size)
+        cv2.imshow('{} - to cut'.format(sprite_name), to_show)
     color=(255,0,0)
     for rec in recs:
         rec=enlargeRec(rec,4)
-        x,y,w,h=rec['x0'],rec['y0'],rec['w'],rec['h']
-        img_single_sprite=img_spr_sheet[y:y+h,x:x+w].copy()
+        x0,y0,x1,y1=rec['x0'],rec['y0'],rec['x1'],rec['y1']
+        img_single_sprite=img_spr_sheet_to_cut[y0:y1,x0:x1].copy()
         sprites.append(img_single_sprite)
-        cv2.rectangle(img_spr_sheet,(x,y),(x+w,y+h),color, thickness)
+        if display:
+            cv2.rectangle(img_spr_sheet,(x0,y0),(x1,y1),color, thickness)
     if display:
         to_show=resizeImgH(img_spr_sheet,display_size)
         cv2.imshow('{} - raw with contours'.format(sprite_name), to_show)
@@ -222,12 +246,54 @@ def loadSpriteSheet(path,threshold=1,display=False):
     return sprites
 
 
-def loadAllKillerInstinctSpriteSheets():
+def loadAllKillerInstinctSpriteSheets(sprite_sheets=['Cinder','Combo','Eyedol','Fulgore','Glacius','Jago','Orchid','Riptor','Sabrewulf','Spinal','Thunder'],grey=False):
     sprites={}
     base_path='games/sprites/killer_instinct/'
     extension='.png'
-    sprite_sheets=['Cinder','Combo','Eyedol','Fulgore','Glacius','Jago','Orchid','Riptor','Sabrewulf','Spinal','Thunder']
     for sprite_sheet in sprite_sheets:
         path=base_path+sprite_sheet+extension
-        sprites[sprite_sheet]=loadSpriteSheet(path)
+        sprites[sprite_sheet]=loadSpriteSheet(path,grey=grey)
     return sprites
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """ Special json encoder for numpy types """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
+
+def storeSprites(sprites,path,compress=True):
+    data=json.dumps(sprites,cls=NumpyEncoder)
+    if compress:
+        compressed=zlib.compress(data.encode('utf-8'))
+        with open(path,'wb') as file:
+            file.write(compressed)
+    else:
+        with codecs.open(path, 'w', 'utf-8') as file:
+            file.write(data)
+
+
+def loadSprites(path,compress=True):
+    data=None
+    if compress:
+        with open(path,'rb') as file:
+            compressed=file.read()
+            data=zlib.decompress(compressed).decode('utf-8')
+    else:
+        with codecs.open(path, 'r', 'utf-8', errors='ignore') as file:
+            data=file.read()
+
+    if data is not None:
+        sprites_vanilla=json.loads(data)
+        sprites={}
+        for k,v in sprites_vanilla.items():
+            sprite_list=[]
+            for sprite in v:
+                sprite_list.append(np.array(sprite).astype(np.uint8))
+            sprites[k]=sprite_list
+        return sprites
