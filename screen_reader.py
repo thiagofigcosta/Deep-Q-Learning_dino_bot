@@ -50,9 +50,17 @@ def setup():
     time.sleep(1)
     cv2.destroyWindow('screen')
     cv2.waitKey(1)
+    if x1<x0:
+        tmp=x0
+        x0=x1
+        x1=tmp
+    if y1<y0:
+        tmp=y0
+        y0=y1
+        y1=tmp
     return pointsToRectangle(x0,y0,x1,y1)
 
 
 def captureScreen(area_rec):
     screen=cv2.cvtColor(np.array(pyautogui.screenshot()), cv2.COLOR_RGB2BGR)
-    return screen[area_rec['y0']:area_rec['y1']][area_rec['x0']:area_rec['x1']]
+    return screen[area_rec['y0']:area_rec['y1'],area_rec['x0']:area_rec['x1']]

@@ -9,7 +9,7 @@ def main(argv):
     emulator_window_rec=screen_io.setup()
     emulator_window=screen_io.captureScreen(emulator_window_rec)
     cv2.imshow('emulator',emulator_window)
-    cv2.moveWindow('emulator',emulator_window_rec['y0'],emulator_window_rec['x1']+10) 
+    cv2.moveWindow('emulator',emulator_window_rec['x1']+10,emulator_window_rec['y0']) 
     cv2.waitKey()
 
 if __name__=='__main__':

@@ -211,7 +211,7 @@ def loadSpriteSheet(path,threshold=1,display=False):
     for rec in recs:
         rec=enlargeRec(rec,4)
         x,y,w,h=rec['x0'],rec['y0'],rec['w'],rec['h']
-        img_single_sprite=img_spr_sheet[y:y+h][x:x+w].copy()
+        img_single_sprite=img_spr_sheet[y:y+h,x:x+w].copy()
         sprites.append(img_single_sprite)
         cv2.rectangle(img_spr_sheet,(x,y),(x+w,y+h),color, thickness)
     if display:
