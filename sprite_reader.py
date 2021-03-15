@@ -246,13 +246,44 @@ def loadSpriteSheet(path,threshold=1,display=False,grey=False):
     return sprites
 
 
+def loadMaskedSpriteSheet(path,threshold=1,grey=False):
+    sprites=[]
+    sprite_name=getFilename(path)
+    img_spr_sheet_raw=cv2.imread(path) 
+    img_spr_sheet=clearBackground(img_spr_sheet_raw.copy(),[255,0,255])
+    img_spr_sheet_grey=cv2.cvtColor(img_spr_sheet,cv2.COLOR_BGR2GRAY)
+    img_spr_sheet_bin=greyToBinary(img_spr_sheet_grey,threshold)
+    img_spr_sheet_bin=morphologicalTransformation(img_spr_sheet_bin,kernel_size=3)
+    img_spr_sheet_mask=255-img_spr_sheet_bin.copy()
+    contours=getContoursOfImage(img_spr_sheet_bin,show_edges=False)
+    recs=contoursToRectangles(contours)
+    print('Contours before simplify: {}'.format(len(recs)))
+    recs=simplifyOverlappingRectangles(recs)
+    recs=filterSmallRecs(recs,250,20,20)
+    print('Contours after simplify: {}'.format(len(recs)))
+    if grey:
+        img_spr_sheet_to_cut=cv2.cvtColor(img_spr_sheet_raw,cv2.COLOR_BGR2GRAY)
+    else:
+        img_spr_sheet_to_cut=img_spr_sheet_raw
+        img_spr_sheet_mask=cv2.cvtColor(img_spr_sheet_mask,cv2.COLOR_GRAY2BGR)
+    for rec in recs:
+        rec=enlargeRec(rec,4)
+        x0,y0,x1,y1=rec['x0'],rec['y0'],rec['x1'],rec['y1']
+        img_single_sprite=img_spr_sheet_to_cut[y0:y1,x0:x1].copy()
+        img_single_sprite_mask=img_spr_sheet_mask[y0:y1,x0:x1].copy()
+        sprites.append({'spr':img_single_sprite,'mask':img_single_sprite_mask})
+    return sprites
+
+
+
 def loadAllKillerInstinctSpriteSheets(sprite_sheets=['Cinder','Combo','Eyedol','Fulgore','Glacius','Jago','Orchid','Riptor','Sabrewulf','Spinal','Thunder'],grey=False):
     sprites={}
     base_path='games/sprites/killer_instinct/'
     extension='.png'
     for sprite_sheet in sprite_sheets:
         path=base_path+sprite_sheet+extension
-        sprites[sprite_sheet]=loadSpriteSheet(path,grey=grey)
+        # sprites[sprite_sheet]=loadSpriteSheet(path,grey=grey)
+        sprites[sprite_sheet]=loadMaskedSpriteSheet(path,grey=grey)
     return sprites
 
 
@@ -294,6 +325,12 @@ def loadSprites(path,compress=True):
         for k,v in sprites_vanilla.items():
             sprite_list=[]
             for sprite in v:
-                sprite_list.append(np.array(sprite).astype(np.uint8))
+                if type(sprite) is dict:
+                    new_dict={}
+                    for k,v in sprite.items():
+                        new_dict[k]=np.array(v).astype(np.uint8)
+                    sprite_list.append(new_dict)
+                else:
+                    sprite_list.append(np.array(sprite).astype(np.uint8))
             sprites[k]=sprite_list
         return sprites
