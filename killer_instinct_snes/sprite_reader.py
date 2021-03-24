@@ -258,6 +258,7 @@ def loadMaskedSpriteSheet(path,threshold=1,grey=False):
     contours=getContoursOfImage(img_spr_sheet_bin,show_edges=False)
     recs=contoursToRectangles(contours)
     print('Contours before simplify: {}'.format(len(recs)))
+    recs=filterSmallRecs(recs,100,10,10)
     recs=simplifyOverlappingRectangles(recs)
     recs=filterSmallRecs(recs,250,20,20)
     print('Contours after simplify: {}'.format(len(recs)))
@@ -275,17 +276,15 @@ def loadMaskedSpriteSheet(path,threshold=1,grey=False):
     return sprites
 
 
-
 def loadAllKillerInstinctSpriteSheets(sprite_sheets=['Cinder','Combo','Eyedol','Fulgore','Glacius','Jago','Orchid','Riptor','Sabrewulf','Spinal','Thunder'],grey=False):
     sprites={}
-    base_path='games/sprites/killer_instinct/'
+    base_path='../games/sprites/killer_instinct/'
     extension='.png'
     for sprite_sheet in sprite_sheets:
         path=base_path+sprite_sheet+extension
         # sprites[sprite_sheet]=loadSpriteSheet(path,grey=grey)
         sprites[sprite_sheet]=loadMaskedSpriteSheet(path,grey=grey)
     return sprites
-
 
 class NumpyEncoder(json.JSONEncoder):
     """ Special json encoder for numpy types """
@@ -318,7 +317,6 @@ def loadSprites(path,compress=True):
     else:
         with codecs.open(path, 'r', 'utf-8', errors='ignore') as file:
             data=file.read()
-
     if data is not None:
         sprites_vanilla=json.loads(data)
         sprites={}
@@ -327,8 +325,8 @@ def loadSprites(path,compress=True):
             for sprite in v:
                 if type(sprite) is dict:
                     new_dict={}
-                    for k,v in sprite.items():
-                        new_dict[k]=np.array(v).astype(np.uint8)
+                    for k2,v2 in sprite.items():
+                        new_dict[k2]=np.array(v2).astype(np.uint8)
                     sprite_list.append(new_dict)
                 else:
                     sprite_list.append(np.array(sprite).astype(np.uint8))

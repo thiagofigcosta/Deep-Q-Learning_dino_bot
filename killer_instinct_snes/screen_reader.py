@@ -69,3 +69,48 @@ def captureScreen(area_rec,grey=False):
     else:
         screen=cv2.cvtColor(screen, cv2.COLOR_RGB2BGR)
     return screen 
+
+
+def isRelativeltyEqual(a,b,confidance):
+    confidance=1-confidance
+    return a*(1-confidance)<=b and a*(1+confidance)>=b
+
+def matchMaskedSprite(image,sprite,confidance,mask=None): # too slow
+    if len(image.shape)==2:
+        image=np.reshape(image,image.shape+(1,))
+    if len(sprite.shape)==2:
+        sprite=np.reshape(sprite,sprite.shape+(1,))
+    image_h,image_w,image_c=image.shape
+    sprite_h,sprite_w,sprite_c=sprite.shape
+    if mask is not None:
+        if len(mask.shape)==2:
+            mask=np.reshape(mask,mask.shape+(1,))
+        mask_h,mask_w,mask_c=mask.shape
+        if mask_h!=sprite_h or mask_w!=sprite_w:
+            raise 'Wrong mask size'
+    if image_c!=sprite_c:
+        raise 'Wrong channels size'
+    match_points=[]
+    # output=np.zeros((image_h,image_w))
+    for i in range(image_h-sprite_h):
+        for j in range(image_w-sprite_w):
+            have_match=True
+            for c in range(sprite_h):
+                for t in range(sprite_w):
+                    if mask is None or mask[c][t][0]==255:
+                        for k in range(image_c):
+                            if not isRelativeltyEqual(image[i+c][j+t][k],sprite[c][t][k],confidance):
+                                have_match=False
+                                break
+                        if not have_match:
+                            break
+                    if not have_match:
+                        break
+                if not have_match:
+                    break
+            if have_match:
+                print('we have a match')
+                match_points.append((i,j))
+            # output[i][j]=0
+    # return output
+    return match_points
