@@ -320,6 +320,8 @@ def drawRectsOnScene(scene_bgr,found_sprites):
     return scene_bgr
 
 def parseAndFilterScore(hi,numbers):
+    if len(numbers)<1:
+        return 0, numbers
     if type(hi) is list:
         if len(hi)<1:
             return 0, numbers
@@ -335,6 +337,11 @@ def parseAndFilterScore(hi,numbers):
     return score, numbers
 
 def parseFrame(scene,assets):
+    # color check
+    scene_middle_x=int(scene.shape[1]/2)
+    scene_middle_y=int(scene.shape[0]/2)
+    if scene[scene_middle_y][scene_middle_x]==0: # scene colors are inverted
+        scene=255-scene
     # dino
     dino=matchSprites(scene,assets['dino'],find_all=False,sensitivity=(0.7,20))
     has_dino=len(dino)==1
@@ -361,6 +368,8 @@ def parseFrame(scene,assets):
     # gg
     gg=matchSprites(scene,assets['game_over'],find_all=False,sensitivity=(0.8,10))
     has_gg=len(gg)==1
+    
+    # network inputs 
 
     return {'dino':has_dino,'amount_cactus':amount_cactus,'amount_birds':amount_birds,'score':score,'amount_numbers':amount_numbers,'game_is_over':has_gg,
             'matches':{'dino':dino,'cactus':cactus,'bird':bird,'numbers':numbers,'gg':gg,'hi':hi},
@@ -368,7 +377,7 @@ def parseFrame(scene,assets):
 
 def test():
     assets=setup(ignore_screenshot=True)[0]
-    scene_paths=['games/sprites/dino/screenshots/bird.png','games/sprites/dino/screenshots/game_over.png','games/sprites/dino/screenshots/nested_obstacles.png','games/sprites/dino/screenshots/no_obstacles.png']
+    scene_paths=['games/sprites/dino/screenshots/bird.png','games/sprites/dino/screenshots/game_over.png','games/sprites/dino/screenshots/inverted_screen.png','games/sprites/dino/screenshots/nested_obstacles.png','games/sprites/dino/screenshots/no_obstacles.png']
     for i,path in enumerate(scene_paths):
         scene=cv2.imread(path, cv2.IMREAD_GRAYSCALE)
         scene_parsed=parseFrame(scene,assets)
@@ -429,9 +438,9 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False):
                 break
 
 def main(argv):
-    # test()
-    assets,game_window_rec=setup()
-    ingameLoop(assets,game_window_rec,limit_fps=0,display=True)
+    test()
+    # assets,game_window_rec=setup()
+    # ingameLoop(assets,game_window_rec,limit_fps=0,display=True)
 
 
 if __name__=='__main__':
