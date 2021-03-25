@@ -1,6 +1,5 @@
 #!/bin/python
 
-
 import sys,cv2,os,time,pyautogui
 import numpy as np
 
@@ -333,11 +332,15 @@ def parseAndFilterScore(hi,numbers):
     return score, numbers
 
 def getAIMaximumValues():
-    # TODO find out the max speed
-    return {'no_hdist':523,'no_vdist':34,'no_w':74,'no_h':54,'speed':1000,'dino_y':90}
+    # TODO refine max speed
+    return {'no_hdist':523,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':90}
 
+def getAIDefaultValues():
+    return {'no_hdist':0,'no_vdist':7,'speed':394.1534831108713,'dino_y':15,'ground_y':135}
 
 def parseFrame(scene,assets,context=None):
+    cur_time=time.time()
+    default_AI_values=getAIDefaultValues()
     # color check
     scene_middle_x=int(scene.shape[1]/2)
     scene_middle_y=int(scene.shape[0]/2)
@@ -350,7 +353,7 @@ def parseFrame(scene,assets,context=None):
     if len(ground)==1:
         ground_y=ground[0]['rect']['y0']
     else:
-        ground_y=135 # default value
+        ground_y=default_AI_values['ground_y']
     # dino
     dino=matchSprites(scene,assets['dino'],find_all=False,sensitivity=(0.7,20))
     has_dino=len(dino)==1
@@ -374,6 +377,8 @@ def parseFrame(scene,assets,context=None):
     numbers=matchSprites(scene_upper,assets['numbers'],find_all=True,x_offset=x_offset,sensitivity=(0.95,1))
     hi=matchSprites(scene_upper,assets['hi'],find_all=False,x_offset=x_offset,sensitivity=(0.8,10))
     score,numbers=parseAndFilterScore(hi,numbers)
+    if context is not None:
+        score=max(context['last_score'],score)
     has_hi=len(dino)==1
     amount_numbers=len(numbers)
     # gg
@@ -381,7 +386,6 @@ def parseFrame(scene,assets,context=None):
     has_gg=len(gg)==1
     
     # AI inputs 
-    cur_time=None
     next_obstacle=None
     if dino_rect is not None:
         next_obstacle_x=scene.shape[1]
@@ -393,7 +397,7 @@ def parseFrame(scene,assets,context=None):
             if b['rect']['x0']<next_obstacle_x and b['rect']['x0'] > dino_rect['x0']:
                 next_obstacle=b['rect']
                 next_obstacle_x=next_obstacle['x0']
-        dino_y=max(ground_y-dino_pos['y']-15,0) # 15 is the default value
+        dino_y=max(ground_y-dino_pos['y']-default_AI_values['dino_y'],0)
     else:
         dino_y=0 
         
@@ -407,23 +411,22 @@ def parseFrame(scene,assets,context=None):
         if context is not None:
             speed=context['last_speed']
         else:
-            speed=0 # TODO compute start speed
+            speed=0
     else:
         next_obstacle_pos=getRectangleCenter(next_obstacle)
         next_obstacle_hdistance=max(next_obstacle_pos['x']-dino_rect['x1'],0)
-        next_obstacle_vdistance=max(ground_y-next_obstacle_pos['y']-7,0) # 7 is the lower value
+        next_obstacle_vdistance=max(ground_y-next_obstacle_pos['y']-default_AI_values['no_vdist'],0)
         next_obstacle_weight=next_obstacle['w']
         next_obstacle_height=next_obstacle['h']
-        cur_time=time.time()
-        if context is not None and context['last_time'] is not None:
+        if context is not None and context['last_time'] is not None and context['last_no_pos_x'] is not None:
             if context['last_speed'] is not None:
                 l_speed=context['last_speed']
             else:
                 l_speed=-1
-            speed=max((context['last_no_pos_x']-next_obstacle_pos['x'])/(cur_time-context['last_time']),0,l_speed) # pixels per second TODO subtract minimum speed
-            # speed=max((context['last_no_pos_x']-next_obstacle_pos['x']),0,l_speed) # pixels per frame unit TODO subtract minimum speed
+            speed=max((context['last_no_pos_x']-next_obstacle_pos['x'])/(cur_time-context['last_time'])-default_AI_values['speed'],0,l_speed) # pixels per second
+            # speed=max((context['last_no_pos_x']-next_obstacle_pos['x']),0,l_speed) # pixels per frame unit
         else:
-            speed=0 # TODO compute start speed
+            speed=0
 
     return {'dino':has_dino,'amount_cactus':amount_cactus,'amount_birds':amount_birds,'score':score,'amount_numbers':amount_numbers,'game_is_over':has_gg,'cur_time':cur_time,
             'matches':{'dino':dino,'cactus':cactus,'bird':birds,'numbers':numbers,'gg':gg,'hi':hi,'ground':ground},
@@ -432,7 +435,7 @@ def parseFrame(scene,assets,context=None):
 
 def test():
     assets=setup(ignore_screenshot=True)[0]
-    scene_paths=['games/sprites/dino/screenshots/bird.png','games/sprites/dino/screenshots/game_over.png','games/sprites/dino/screenshots/inverted_screen.png','games/sprites/dino/screenshots/nested_obstacles.png','games/sprites/dino/screenshots/no_obstacles.png']
+    scene_paths=['games/sprites/dino/screenshots/bird.png','games/sprites/dino/screenshots/bird_high.png','games/sprites/dino/screenshots/game_over.png','games/sprites/dino/screenshots/inverted_screen.png','games/sprites/dino/screenshots/nested_obstacles.png','games/sprites/dino/screenshots/no_obstacles.png']
     for i,path in enumerate(scene_paths):
         scene=cv2.imread(path, cv2.IMREAD_GRAYSCALE)
         scene_parsed=parseFrame(scene,assets)
@@ -464,22 +467,30 @@ def test():
         cv2.imshow('Scene {}'.format(i),to_show)
     cv2.waitKey()
 
-def ingameLoop(assets,game_window_rec,limit_fps=30,display=False):
+def updateContext(context,parsed_scene):
+    context['last_time']=parsed_scene['cur_time']
+    context['last_speed']=parsed_scene['AI']['speed']
+    context['last_no_pos_x']=parsed_scene['positions']['no_pos']['x']
+    return context
+
+def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True):
     ingame=True
     emulator_window_name='game'
     cv2.namedWindow(emulator_window_name)
     cv2.moveWindow(emulator_window_name,game_window_rec['x0'],game_window_rec['y1']+66)
     if limit_fps!=0:
         ms_p_f=1000/limit_fps
-    context={'last_time':None,'last_no_pos_x':None,'last_speed':0} # TODO compute start speed
+    context={'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0}
+    speeds=set()
     while(ingame):
         start=time.time()
         # start loop
-        game_frame=captureScreen(game_window_rec)
+        game_frame=captureScreen(game_window_rec) 
         parsed_frame=parseFrame(game_frame,assets,context=context)
-        context['last_time']=parsed_frame['cur_time']
-        context['last_speed']=parsed_frame['AI']['speed']
-        context['last_no_pos_x']=parsed_frame['positions']['no_pos']['x']
+        context=updateContext(context,parsed_frame)
+        if show_speeds and parsed_frame['AI']['speed'] not in speeds:
+            print('speed: {}'.format(parsed_frame['AI']['speed']))
+            speeds.add(parsed_frame['AI']['speed'])
         if display:
             to_show=cv2.cvtColor(game_frame,cv2.COLOR_GRAY2BGR) # just to draw boundaries
             drawRectsOnScene(to_show,parsed_frame['matches']['dino'])
