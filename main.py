@@ -84,10 +84,6 @@ def getEquivalentRectangles(rec_0,rec_1,offset=0):
         else:
             y_1=rec_1['y1']
         equivalent.append(pointAndSizeToRectangle(x_0,y_0,(x_1-x_0),(y_1-y_0)))
-    elif collision==2: # TODO not working
-        equivalent.append(rec_0)
-    elif collision==3: # TODO not working
-        equivalent.append(rec_1)
     return equivalent
 
 
@@ -223,7 +219,7 @@ def loadSprites(path):
 
 def loadAssets(base_path='games/sprites/dino/'):
     print('Loading assets...', end='')
-    asset_list=['bird_1','bird_2','cactus_big_large','cactus_big_thin','cactus_regular','cactus_small','dino_down','dino_up','game_over','hi','number_0','number_1','number_2','number_3','number_4','number_5','number_6','number_7','number_8','number_9']
+    asset_list=['bird_1','bird_2','cactus_big_large','cactus_big_thin','cactus_regular','cactus_small','dino_down','dino_up','game_over','ground','hi','number_0','number_1','number_2','number_3','number_4','number_5','number_6','number_7','number_8','number_9']
     ext='.png'
     loaded_assets={}
     for asset in asset_list:
@@ -276,7 +272,7 @@ def matchSprites(screen,template_list,find_all,stop_on_first=True,sensitivity=(0
             loc=np.where(np.logical_or(np.logical_and(np.greater_equal(res,img_match_threshold),np.logical_not(search_min)),np.logical_and(np.less_equal(res,img_match_min_diff),search_min))) # (res>=img_match_threshold and not search_min) or (res<=img_match_min_diff and search_min)
             filtered_locations=zip(*loc[::-1])
             for pt in filtered_locations:
-                val=0 # TODO implement me, i want to get the points and their values
+                val=0 # TODO implement me, I want to get the points and their values
                 if search_min:
                     val=(255-val)/255
                 rec=pointAndSizeToRectangle(pt[0]+x_offset,pt[1]+y_offset,sprite_w,sprite_h)
@@ -336,26 +332,41 @@ def parseAndFilterScore(hi,numbers):
         score+=10**i*number['idx']
     return score, numbers
 
-def parseFrame(scene,assets):
+def getAIMaximumValues():
+    # TODO find out the max speed
+    return {'no_hdist':523,'no_vdist':34,'no_w':74,'no_h':54,'speed':1000,'dino_y':90}
+
+
+def parseFrame(scene,assets,context=None):
     # color check
     scene_middle_x=int(scene.shape[1]/2)
     scene_middle_y=int(scene.shape[0]/2)
     if scene[scene_middle_y][scene_middle_x]==0: # scene colors are inverted
         scene=255-scene
+    # ground
+    ground_rect=pointAndSizeToRectangle(0,0,int(scene.shape[1]*.1),scene.shape[0])
+    scene_left=scene[ground_rect['y0']:ground_rect['y1'],ground_rect['x0']:ground_rect['x1']]
+    ground=matchSprites(scene_left,assets['ground'],find_all=False,sensitivity=(1,0))
+    if len(ground)==1:
+        ground_y=ground[0]['rect']['y0']
+    else:
+        ground_y=135 # default value
     # dino
     dino=matchSprites(scene,assets['dino'],find_all=False,sensitivity=(0.7,20))
     has_dino=len(dino)==1
     if has_dino:
         dino_pos=getRectangleCenter(dino[0]['rect'])
+        dino_rect=dino[0]['rect']
     else:
         dino_pos={'x':None,'y':None}
+        dino_rect=None
     # cactus
     cactus=matchSprites(scene,assets['cactus'],find_all=True,sensitivity=(0.8,10))
     cactus=simplifyOverlappingCactus(cactus,offset=2)
     amount_cactus=len(cactus)
     # bird
-    bird=matchSprites(scene,assets['bird'],find_all=True,sensitivity=(0.8,10))
-    amount_birds=len(bird)
+    birds=matchSprites(scene,assets['bird'],find_all=True,sensitivity=(0.8,10))
+    amount_birds=len(birds)
     # numbers
     x_offset=int(scene.shape[1]/2)
     score_rect=pointAndSizeToRectangle(x_offset,0,scene.shape[1],int(scene.shape[0]*.18))
@@ -369,11 +380,55 @@ def parseFrame(scene,assets):
     gg=matchSprites(scene,assets['game_over'],find_all=False,sensitivity=(0.8,10))
     has_gg=len(gg)==1
     
-    # network inputs 
+    # AI inputs 
+    cur_time=None
+    next_obstacle=None
+    if dino_rect is not None:
+        next_obstacle_x=scene.shape[1]
+        for c in cactus:
+            if c['rect']['x0']<next_obstacle_x and c['rect']['x0'] > dino_rect['x0']:
+                next_obstacle=c['rect']
+                next_obstacle_x=next_obstacle['x0']
+        for b in birds:
+            if b['rect']['x0']<next_obstacle_x and b['rect']['x0'] > dino_rect['x0']:
+                next_obstacle=b['rect']
+                next_obstacle_x=next_obstacle['x0']
+        dino_y=max(ground_y-dino_pos['y']-15,0) # 15 is the default value
+    else:
+        dino_y=0 
+        
+    if next_obstacle is None or dino_rect is None:
+        max_AI_values=getAIMaximumValues()
+        next_obstacle_pos={'x':None,'y':None}
+        next_obstacle_hdistance=max_AI_values['no_hdist']
+        next_obstacle_vdistance=max_AI_values['no_vdist']
+        next_obstacle_weight=0
+        next_obstacle_height=0 
+        if context is not None:
+            speed=context['last_speed']
+        else:
+            speed=0 # TODO compute start speed
+    else:
+        next_obstacle_pos=getRectangleCenter(next_obstacle)
+        next_obstacle_hdistance=max(next_obstacle_pos['x']-dino_rect['x1'],0)
+        next_obstacle_vdistance=max(ground_y-next_obstacle_pos['y']-7,0) # 7 is the lower value
+        next_obstacle_weight=next_obstacle['w']
+        next_obstacle_height=next_obstacle['h']
+        cur_time=time.time()
+        if context is not None and context['last_time'] is not None:
+            if context['last_speed'] is not None:
+                l_speed=context['last_speed']
+            else:
+                l_speed=-1
+            speed=max((context['last_no_pos_x']-next_obstacle_pos['x'])/(cur_time-context['last_time']),0,l_speed) # pixels per second TODO subtract minimum speed
+            # speed=max((context['last_no_pos_x']-next_obstacle_pos['x']),0,l_speed) # pixels per frame unit TODO subtract minimum speed
+        else:
+            speed=0 # TODO compute start speed
 
-    return {'dino':has_dino,'amount_cactus':amount_cactus,'amount_birds':amount_birds,'score':score,'amount_numbers':amount_numbers,'game_is_over':has_gg,
-            'matches':{'dino':dino,'cactus':cactus,'bird':bird,'numbers':numbers,'gg':gg,'hi':hi},
-            'positions':{'dino':dino_pos}}
+    return {'dino':has_dino,'amount_cactus':amount_cactus,'amount_birds':amount_birds,'score':score,'amount_numbers':amount_numbers,'game_is_over':has_gg,'cur_time':cur_time,
+            'matches':{'dino':dino,'cactus':cactus,'bird':birds,'numbers':numbers,'gg':gg,'hi':hi,'ground':ground},
+            'positions':{'dino':dino_pos,'no_pos':next_obstacle_pos},
+            'AI':{'no_hdist':next_obstacle_hdistance,'no_vdist':next_obstacle_vdistance,'no_w':next_obstacle_weight,'no_h':next_obstacle_height,'speed':speed,'dino_y':dino_y}}
 
 def test():
     assets=setup(ignore_screenshot=True)[0]
@@ -393,6 +448,10 @@ def test():
         print('\tFound {} numbers'.format(scene_parsed['amount_numbers']))
         if scene_parsed['game_is_over']:
             print('\tGame over')
+        else:
+            print('\tAI inputs:')
+            for k,v in scene_parsed['AI'].items():
+                print('\t\t{}: {}'.format(k,v))
         # draw
         to_show=cv2.cvtColor(scene,cv2.COLOR_GRAY2BGR) # just to draw boundaries
         drawRectsOnScene(to_show,scene_parsed['matches']['dino'])
@@ -401,6 +460,7 @@ def test():
         drawRectsOnScene(to_show,scene_parsed['matches']['bird'])
         drawRectsOnScene(to_show,scene_parsed['matches']['gg'])
         drawRectsOnScene(to_show,scene_parsed['matches']['hi'])
+        drawRectsOnScene(to_show,scene_parsed['matches']['ground'])
         cv2.imshow('Scene {}'.format(i),to_show)
     cv2.waitKey()
 
@@ -411,11 +471,15 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False):
     cv2.moveWindow(emulator_window_name,game_window_rec['x0'],game_window_rec['y1']+66)
     if limit_fps!=0:
         ms_p_f=1000/limit_fps
+    context={'last_time':None,'last_no_pos_x':None,'last_speed':0} # TODO compute start speed
     while(ingame):
         start=time.time()
         # start loop
         game_frame=captureScreen(game_window_rec)
-        parsed_frame=parseFrame(game_frame,assets)
+        parsed_frame=parseFrame(game_frame,assets,context=context)
+        context['last_time']=parsed_frame['cur_time']
+        context['last_speed']=parsed_frame['AI']['speed']
+        context['last_no_pos_x']=parsed_frame['positions']['no_pos']['x']
         if display:
             to_show=cv2.cvtColor(game_frame,cv2.COLOR_GRAY2BGR) # just to draw boundaries
             drawRectsOnScene(to_show,parsed_frame['matches']['dino'])
