@@ -1,3 +1,5 @@
-# Killer instinct killer #
+# Dino game bot #
 
-AI to play SNES killer instinct.
+AI to play chrome dino game.
+
+Dino game ripped by [wayou](https://github.com/wayou/t-rex-runner).
