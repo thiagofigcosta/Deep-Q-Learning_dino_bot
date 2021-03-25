@@ -127,7 +127,7 @@ def getEquivalentRectangles(rec_0,rec_1):
     if collision==0:
         equivalent.append(rec_0)
         equivalent.append(rec_1)
-    elif collision==1:
+    elif collision>=1:
         x_0=None
         x_1=None
         if rec_0['x0'] < rec_1['x0']:
@@ -149,9 +149,9 @@ def getEquivalentRectangles(rec_0,rec_1):
         else:
             y_1=rec_1['y1']
         equivalent.append(pointAndSizeToRectangle(x_0,y_0,(x_1-x_0),(y_1-y_0)))
-    elif collision==2:
+    elif collision==2: # TODO not working
         equivalent.append(rec_0)
-    elif collision==3:
+    elif collision==3: # TODO not working
         equivalent.append(rec_1)
     return equivalent
 
