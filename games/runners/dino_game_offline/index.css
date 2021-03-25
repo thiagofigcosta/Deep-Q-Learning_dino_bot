@@ -20,6 +20,47 @@
 
 /* Offline page */
 
+/* enables color invertion */
+/* iOS WKWebView inverts the background color set at the HTML level
+whereas Blink does not. */
+.offline.inverted {
+  filter: invert(1);
+  background-color: #000;
+}
+.offline.inverted body {
+  background-color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .icon {
+    filter: invert(1);
+  }
+
+  .offline .runner-canvas {
+    filter: invert(1);
+  }
+
+  .offline.inverted {
+    filter: invert(0);
+  
+    background-color: var(--background-color);
+  
+  
+  }
+
+  .offline.inverted body {
+    background-color: #fff;
+  }
+
+  #suggestions-list a {
+    color: var(--link-color);
+  }
+
+  #error-information-button {
+    filter: invert(0.6);
+  }
+}
+/* enables color invertion */
+
 .offline .interstitial-wrapper {
   color: #2b2b2b;
   font-size: 1em;
