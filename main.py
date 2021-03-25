@@ -245,7 +245,7 @@ def loadAssets(base_path='games/sprites/dino/'):
     print('OK')
     return organized_assets
 
-def matchSprites(screen,template_list,find_all,stop_on_first=True,sensitivity=(0.9,1)):
+def matchSprites(screen,template_list,find_all,stop_on_first=True,sensitivity=(0.9,1),x_offset=0,y_offset=0):
     img_match_threshold=sensitivity[0]
     img_match_min_diff=sensitivity[1]
     found_elements=[]
@@ -279,7 +279,7 @@ def matchSprites(screen,template_list,find_all,stop_on_first=True,sensitivity=(0
                 val=0 # TODO implement me, i want to get the points and their values
                 if search_min:
                     val=(255-val)/255
-                rec=pointAndSizeToRectangle(pt[0],pt[1],sprite_w,sprite_h)
+                rec=pointAndSizeToRectangle(pt[0]+x_offset,pt[1]+y_offset,sprite_w,sprite_h)
                 found_elements.append({'rect':rec,'idx':i,'trust':val})
         else:
             min_val,max_val,min_loc,max_loc=cv2.minMaxLoc(res)
@@ -291,7 +291,7 @@ def matchSprites(screen,template_list,find_all,stop_on_first=True,sensitivity=(0
                 val=max_val
             if (val>=img_match_threshold and not search_min) or (val<=img_match_min_diff and search_min):
                 if candidate is None or (val>candidate_val and not search_min) or (val<candidate_val and search_min):
-                    rec=pointAndSizeToRectangle(loc[0],loc[1],sprite_w,sprite_h)
+                    rec=pointAndSizeToRectangle(loc[0]+x_offset,loc[1]+y_offset,sprite_w,sprite_h)
                     candidate=rec
                     candidate_val=val
                     candidate_index=i
@@ -321,6 +321,8 @@ def drawRectsOnScene(scene_bgr,found_sprites):
 
 def parseAndFilterScore(hi,numbers):
     if type(hi) is list:
+        if len(hi)<1:
+            return 0, numbers
         hi=hi[0]
     hi_x1=hi['rect']['x1']
     number_size=numbers[0]['rect']['x1']-numbers[0]['rect']['x0']
@@ -332,7 +334,7 @@ def parseAndFilterScore(hi,numbers):
         score+=10**i*number['idx']
     return score, numbers
 
-def parseScene(scene,assets):
+def parseFrame(scene,assets):
     # dino
     dino=matchSprites(scene,assets['dino'],find_all=False,sensitivity=(0.7,20))
     has_dino=len(dino)==1
@@ -348,10 +350,11 @@ def parseScene(scene,assets):
     bird=matchSprites(scene,assets['bird'],find_all=True,sensitivity=(0.8,10))
     amount_birds=len(bird)
     # numbers
-    score_rect=pointAndSizeToRectangle(0,0,scene.shape[1],int(scene.shape[0]*.18))
+    x_offset=int(scene.shape[1]/2)
+    score_rect=pointAndSizeToRectangle(x_offset,0,scene.shape[1],int(scene.shape[0]*.18))
     scene_upper=scene[score_rect['y0']:score_rect['y1'],score_rect['x0']:score_rect['x1']]
-    numbers=matchSprites(scene_upper,assets['numbers'],find_all=True,sensitivity=(0.95,1))
-    hi=matchSprites(scene_upper,assets['hi'],find_all=False,sensitivity=(0.8,10))
+    numbers=matchSprites(scene_upper,assets['numbers'],find_all=True,x_offset=x_offset,sensitivity=(0.95,1))
+    hi=matchSprites(scene_upper,assets['hi'],find_all=False,x_offset=x_offset,sensitivity=(0.8,10))
     score,numbers=parseAndFilterScore(hi,numbers)
     has_hi=len(dino)==1
     amount_numbers=len(numbers)
@@ -368,7 +371,7 @@ def test():
     scene_paths=['games/sprites/dino/screenshots/bird.png','games/sprites/dino/screenshots/game_over.png','games/sprites/dino/screenshots/nested_obstacles.png','games/sprites/dino/screenshots/no_obstacles.png']
     for i,path in enumerate(scene_paths):
         scene=cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        scene_parsed=parseScene(scene,assets)
+        scene_parsed=parseFrame(scene,assets)
         # print
         print('Scene {}'.format(i))
         print('\tScore: {}'.format(scene_parsed['score']))
@@ -392,8 +395,44 @@ def test():
         cv2.imshow('Scene {}'.format(i),to_show)
     cv2.waitKey()
 
+def ingameLoop(assets,game_window_rec,limit_fps=30,display=False):
+    ingame=True
+    emulator_window_name='game'
+    cv2.namedWindow(emulator_window_name)
+    cv2.moveWindow(emulator_window_name,game_window_rec['x0'],game_window_rec['y1']+66)
+    if limit_fps!=0:
+        ms_p_f=1000/limit_fps
+    while(ingame):
+        start=time.time()
+        # start loop
+        game_frame=captureScreen(game_window_rec)
+        parsed_frame=parseFrame(game_frame,assets)
+        if display:
+            to_show=cv2.cvtColor(game_frame,cv2.COLOR_GRAY2BGR) # just to draw boundaries
+            drawRectsOnScene(to_show,parsed_frame['matches']['dino'])
+            drawRectsOnScene(to_show,parsed_frame['matches']['cactus'])
+            drawRectsOnScene(to_show,parsed_frame['matches']['numbers'])
+            drawRectsOnScene(to_show,parsed_frame['matches']['bird'])
+            drawRectsOnScene(to_show,parsed_frame['matches']['gg'])
+            drawRectsOnScene(to_show,parsed_frame['matches']['hi'])
+            cv2.imshow(emulator_window_name,to_show)
+        # end loop
+        if limit_fps!=0:
+            # respect fps
+            delta=int(ms_p_f-float(time.time()-start)/1000)
+            if delta<=0:
+                delta=1
+            if cv2.waitKey(delta)==27: #escape key
+                break
+        else:
+            if cv2.waitKey(1)==27: #escape key
+                break
+
 def main(argv):
-    test()
+    # test()
+    assets,game_window_rec=setup()
+    ingameLoop(assets,game_window_rec,limit_fps=0,display=True)
+
 
 if __name__=='__main__':
     main(sys.argv[1:])
