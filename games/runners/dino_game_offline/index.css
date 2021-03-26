@@ -77,7 +77,8 @@ whereas Blink does not. */
   overflow: hidden;
   position: absolute;
   top: 35px;
-  width: 44px;
+  /* width: 44px; */
+  width: 600px;
   border-style: double;
 }
 
@@ -147,7 +148,7 @@ whereas Blink does not. */
 
 @media (min-height: 240px) and (orientation: landscape) {
   .offline .interstitial-wrapper {
-    margin-bottom: 90px;
+    /* margin-bottom: 90px; */
   }
   .icon-offline {
     margin-bottom: 20px;
@@ -166,6 +167,6 @@ whereas Blink does not. */
 @media (max-width: 240px) {
   .interstitial-wrapper {
     overflow: inherit;
-    padding: 0 8px;
+    /* padding: 0 8px; */
   }
 }

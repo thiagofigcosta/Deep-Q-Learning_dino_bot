@@ -1,3 +1,4 @@
 ignore/
 __pycache__/
 killer_instinct_snes/__pycache__/
+bots/
