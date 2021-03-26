@@ -382,7 +382,7 @@ def parseAndFilterScore(hi,numbers):
 
 def getAIMaximumValues():
     # TODO refine max speed
-    return {'no_hdist':523,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':90}
+    return {'no_hdist':526,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':90}
 
 def getAIDefaultValues():
     return {'no_hdist':0,'no_vdist':7,'speed':394.1534831108713,'dino_y':15,'ground_y':135}
