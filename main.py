@@ -382,7 +382,7 @@ def parseAndFilterScore(hi,numbers):
 
 def getAIMaximumValues():
     # TODO refine max speed
-    return {'no_hdist':526,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':90}
+    return {'no_hdist':540,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':93}
 
 def getAIDefaultValues():
     return {'no_hdist':0,'no_vdist':7,'speed':394.1534831108713,'dino_y':15,'ground_y':135}
@@ -443,7 +443,7 @@ def parseFrame(scene,assets,context=None):
     score,numbers=parseAndFilterScore(hi,numbers)
     if context is not None:
         score=max(context['last_score'],score)
-    has_hi=len(dino)==1
+    has_hi=len(hi)==1
     amount_numbers=len(numbers)
     # gg
     gg=matchSprites(scene,assets['game_over'],find_all=False,sensitivity=(0.8,10))
@@ -472,16 +472,22 @@ def parseFrame(scene,assets,context=None):
         next_obstacle_weight=0
         next_obstacle_height=0 
         if context is not None:
+            context['passed_obstacle']=False
             speed=context['last_speed']
         else:
             speed=0
     else:
         next_obstacle_pos=getRectangleCenter(next_obstacle)
-        next_obstacle_hdistance=max(next_obstacle_pos['x']-dino_rect['x1'],0)
+        next_obstacle_hdistance=next_obstacle_pos['x']-dino_pos['x'] #max(next_obstacle_pos['x']-dino_rect['x1'],0) # TODO choose more appropriate
         next_obstacle_vdistance=max(ground_y-next_obstacle_pos['y']-default_AI_values['no_vdist'],0)
         next_obstacle_weight=next_obstacle['w']
         next_obstacle_height=next_obstacle['h']
         if context is not None and context['last_time'] is not None and context['last_no_pos_x'] is not None:
+            if next_obstacle_pos['x']>context['last_no_pos_x']:
+                print('survived') # TODO remove
+                context['passed_obstacle']=True
+            else:
+                context['passed_obstacle']=False
             if context['last_speed'] is not None:
                 l_speed=context['last_speed']
             else:
@@ -537,19 +543,28 @@ def updateContext(context,parsed_scene):
     return context
 
 def getFreshContext():
-    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':False,'last_state':[],'last_actions':[]}
+    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':False,'last_state':[],'last_actions':[],'passed_obstacle':False}
 
 def performAction(action):
     if action=='jump':
+        pyautogui.keyUp('down')
         pyautogui.press('up')
     elif action=='down':
-        pyautogui.press('down')
+        pyautogui.keyDown('down')
+        # pyautogui.press('down')
+    else: # action==stay
+        pyautogui.keyUp('down')
 
 def performIntAction(action,actions_list):
     action_str=actions_list[action]
     performAction(action_str)
     return action_str
 
+def floatListToFormatedStr(f_list):
+    str_formatted='['
+    for el in f_list:
+        str_formatted+=' {:.3f}'.format(el)
+    return str_formatted+' ]'
 
 def saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network):
     print('Saving model...',end='')
@@ -562,31 +577,42 @@ def saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_sco
     metadata={}
     print('OK')
 
-def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True,load_model=True,save_model=True,learn=True,episodes_frequency_to_save=10):
+def getGameFocus(game_window_rec):
+    window_pos=getRectangleCenter(game_window_rec)
+    mouse_pos_backup=pyautogui.position()
+    pyautogui.click(window_pos['x']-50, window_pos['y'], button='left') # get focus
+    pyautogui.moveTo(mouse_pos_backup[0],mouse_pos_backup[1])
+    time.sleep(0.666)
+
+def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True,load_model=True,save_model=True,learn=True,verbose=False,episodes_frequency_to_save=20):
     ingame=True
     if display:
         emulator_window_name='game'
         cv2.namedWindow(emulator_window_name)
         cv2.moveWindow(emulator_window_name,game_window_rec['x0'],game_window_rec['y1']+66*2)
     if limit_fps!=0:
-        ms_p_f=1000/limit_fps
+        s_p_f=1/limit_fps
+        ms_p_f=s_p_f*1000
     context=getFreshContext()
     speeds=set()
     # AI settings start 
     actions=('jump','down','stay')
     # NN
     amount_AI_inputs=6
-    learning_rate=0.01
-    hidden_neurons=8
+    learning_rate=0.007
+    hidden_neurons=10
     sleep_after_action=0
     use_bias=True
     # Q-learning
     lose_game_penalty=100
-    default_behaviour_penalty=1
+    default_behaviour_penalty=0
+    pass_obstacle_reward=10
+    stay_alive_reward=1+default_behaviour_penalty
+    fixed_reward_instead_of_score_based=True
     discount_factor=0.95
     epsilon_max=1.0
-    epsilon_min=0.01
-    epsilon_decay=0.03
+    epsilon_min=0.101
+    epsilon_decay=0.003
     epsilon_confidance=0.1 # stops random shots when below this value
     # persistance
     model_weights_path='bot_brain.h5'
@@ -600,8 +626,8 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
         print('Creating model...',end='')
         neural_network=Sequential()
         neural_network.add(InputLayer(batch_input_shape=(1,amount_AI_inputs)))
-        neural_network.add(Dense(hidden_neurons,activation='relu',use_bias=use_bias))
-        neural_network.add(Dense(len(actions),activation='tanh'))
+        neural_network.add(Dense(hidden_neurons,activation='tanh',use_bias=use_bias))
+        neural_network.add(Dense(len(actions),activation='tanh',use_bias=use_bias))
         neural_network.compile(loss='mse',optimizer=keras.optimizers.Adam(learning_rate=learning_rate),metrics=['mae']) # mae = mean absolute error, mse = mean squared error
         print('OK')
     if load_model and os.path.isfile(model_metadata_path):
@@ -618,9 +644,10 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
         max_scores=[]   
     action=0
     reward=0
+    getGameFocus(game_window_rec)
     while(ingame):
         try:
-            start=time.time()
+            start_time=time.time()
             # screen read and parse
             game_frame=captureScreen(game_window_rec)
             parsed_frame=parseFrame(game_frame,assets,context=context) 
@@ -644,9 +671,11 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 invert_action_state=True
                 time.sleep(sleep_after_action)
             else:
-                reward=parsed_frame['score']-last_score
+                reward=stay_alive_reward if fixed_reward_instead_of_score_based else (parsed_frame['score']-last_score)
                 if actions[action]=='stay':
                     reward-=default_behaviour_penalty
+                elif context['passed_obstacle']:
+                    reward+=pass_obstacle_reward
             if (parsed_frame['game_is_over'] or context['took_action']) and len(context['last_state'])>0 and learn:
                 if len(context['last_actions'])==0:
                     previous_state_mirror_labels=neural_network.predict([context['last_state']])[0].tolist()
@@ -656,6 +685,8 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 previous_state_mirror_labels[action]=ajusted_label_for_action
                 neural_network.fit([context['last_state']],[previous_state_mirror_labels],epochs=1,verbose=0)
                 invert_action_state=True
+                if (verbose):
+                    print('Action: {} - Reward: {} | epsilon: {:.3f} | state: {}'.format(actions[action],reward,epsilon,floatListToFormatedStr(context['last_state'])))
             if parsed_frame['game_is_over']:
                 if len(context['last_state'])>0:
                     cur_episode+=1
@@ -664,11 +695,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                     if save_model and cur_episode%episodes_frequency_to_save==0:
                         saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network)
                 else: 
-                    window_pos=getRectangleCenter(game_window_rec)
-                    mouse_pos_backup=pyautogui.position()
-                    pyautogui.click(window_pos['x']-50, window_pos['y'], button='left') # get focus
-                    pyautogui.moveTo(mouse_pos_backup[0],mouse_pos_backup[1])
-                    time.sleep(0.666)
+                    getGameFocus(game_window_rec)
                 performAction('jump') # restart the game
                 context=getFreshContext()
                 time.sleep(0.666)
@@ -688,13 +715,19 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 drawRectsOnScene(to_show,parsed_frame['matches']['hi'])
                 cv2.imshow(emulator_window_name,to_show)
             # end loop
+            end_time=time.time()
             if limit_fps!=0:
                 # respect fps
-                delta=int(ms_p_f-float(time.time()-start)/1000)
-                if delta<=0:
-                    delta=1
-                if cv2.waitKey(delta)==27: #escape key
-                    break
+                elapsed_seconds=float(end_time-start_time)
+                if display:
+                    elapsed_mseconds=1000*elapsed_seconds
+                    delta=int(ms_p_f-elapsed_mseconds)
+                    if delta<=0:
+                        delta=1
+                    if cv2.waitKey(delta)==27: #escape key
+                        break
+                else:
+                    time.sleep(max((s_p_f-elapsed_seconds),0))
             else:
                 if cv2.waitKey(1)==27: #escape key
                     break
@@ -712,7 +745,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
 def main(argv):
     # test()
     assets,game_window_rec=setup()
-    ingameLoop(assets,game_window_rec,limit_fps=0,display=False)
+    ingameLoop(assets,game_window_rec,limit_fps=20,display=False,verbose=True)
 
 if __name__=='__main__':
     main(sys.argv[1:])
