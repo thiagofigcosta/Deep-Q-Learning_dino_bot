@@ -1,7 +1,33 @@
 #!/bin/python
-
-import sys,cv2,os,time,pyautogui
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL']='3' # DISABLE TENSORFLOW WARNING
+import sys,cv2,time,pyautogui,json,zlib,keras,codecs
 import numpy as np
+from keras.models import Sequential
+from keras.layers import InputLayer, Dense
+
+def queryYesOrNo(question, default='yes'):
+    # default == 'yes' or 'no' or None
+    valid = {"yes": True, "y": True, "ye": True,
+             "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' "
+                             "(or 'y' or 'n').\n")
 
 def pointsToRectangle(x0,y0,x1,y1):
     w=int(x1-x0)
@@ -183,6 +209,29 @@ def captureScreen(area_rec):
     screen=cv2.cvtColor(screen, cv2.COLOR_RGB2GRAY)
     return screen 
 
+def saveJsonToFile(json_obj,path,compress=False):
+    data=json.dumps(json_obj)
+    if compress:
+        compressed=zlib.compress(data.encode('utf-8'))
+        with open(path,'wb') as file:
+            file.write(compressed)
+    else:
+        with codecs.open(path, 'w', 'utf-8') as file:
+            file.write(data)
+
+def loadJsonFromFile(path,compress=False):
+    data=None
+    if compress:
+        with open(path,'rb') as file:
+            compressed=file.read()
+            data=zlib.decompress(compressed).decode('utf-8')
+    else:
+        with codecs.open(path, 'r', 'utf-8', errors='ignore') as file:
+            data=file.read()
+    if data is not None:
+        data=json.loads(data)
+    return data
+
 def greyToBinaryInline(img_grey,img_bin,threshold,copy=True):
     if copy:
         img_bin=img_grey.copy()
@@ -338,6 +387,21 @@ def getAIMaximumValues():
 def getAIDefaultValues():
     return {'no_hdist':0,'no_vdist':7,'speed':394.1534831108713,'dino_y':15,'ground_y':135}
 
+def normalizeAiValues(AI,check_out_of_range=True): # TODO change to false
+    max_values=getAIMaximumValues()
+    out=[]
+    out.append(AI['no_hdist']/max_values['no_hdist'])
+    out.append(AI['no_vdist']/max_values['no_vdist'])
+    out.append(AI['no_w']/max_values['no_w'])
+    out.append(AI['no_h']/max_values['no_h'])
+    out.append(AI['speed']/max_values['speed'])
+    out.append(AI['dino_y']/max_values['dino_y'])
+    if check_out_of_range:
+        for i,el in enumerate(out):
+            if el<0 or el>1:
+                print ('ERROR: element({}) at index {} out of range!'.format(el,i))
+    return out
+
 def parseFrame(scene,assets,context=None):
     cur_time=time.time()
     default_AI_values=getAIDefaultValues()
@@ -400,7 +464,6 @@ def parseFrame(scene,assets,context=None):
         dino_y=max(ground_y-dino_pos['y']-default_AI_values['dino_y'],0)
     else:
         dino_y=0 
-        
     if next_obstacle is None or dino_rect is None:
         max_AI_values=getAIMaximumValues()
         next_obstacle_pos={'x':None,'y':None}
@@ -473,50 +536,183 @@ def updateContext(context,parsed_scene):
     context['last_no_pos_x']=parsed_scene['positions']['no_pos']['x']
     return context
 
-def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True):
+def getFreshContext():
+    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':False,'last_state':[],'last_actions':[]}
+
+def performAction(action):
+    if action=='jump':
+        pyautogui.press('up')
+    elif action=='down':
+        pyautogui.press('down')
+
+def performIntAction(action,actions_list):
+    action_str=actions_list[action]
+    performAction(action_str)
+    return action_str
+
+
+def saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network):
+    print('Saving model...',end='')
+    metadata={}
+    metadata['cur_episode']=cur_episode
+    metadata['epsilon']=epsilon
+    metadata['max_scores']=max_scores
+    saveJsonToFile(metadata,model_metadata_path)
+    neural_network.save(model_weights_path)
+    metadata={}
+    print('OK')
+
+def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True,load_model=True,save_model=True,learn=True,episodes_frequency_to_save=10):
     ingame=True
-    emulator_window_name='game'
-    cv2.namedWindow(emulator_window_name)
-    cv2.moveWindow(emulator_window_name,game_window_rec['x0'],game_window_rec['y1']+66)
+    if display:
+        emulator_window_name='game'
+        cv2.namedWindow(emulator_window_name)
+        cv2.moveWindow(emulator_window_name,game_window_rec['x0'],game_window_rec['y1']+66*2)
     if limit_fps!=0:
         ms_p_f=1000/limit_fps
-    context={'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0}
+    context=getFreshContext()
     speeds=set()
+    # AI settings start 
+    actions=('jump','down','stay')
+    # NN
+    amount_AI_inputs=6
+    learning_rate=0.01
+    hidden_neurons=8
+    sleep_after_action=0
+    use_bias=True
+    # Q-learning
+    lose_game_penalty=100
+    default_behaviour_penalty=1
+    discount_factor=0.95
+    epsilon_max=1.0
+    epsilon_min=0.01
+    epsilon_decay=0.03
+    epsilon_confidance=0.1 # stops random shots when below this value
+    # persistance
+    model_weights_path='bot_brain.h5'
+    model_metadata_path='bot_metadata.json'
+    # AI settings end 
+    if load_model and os.path.isfile(model_weights_path):
+        print('Loading model...',end='')
+        neural_network=keras.models.load_model(model_weights_path)
+        print('OK')
+    else:
+        print('Creating model...',end='')
+        neural_network=Sequential()
+        neural_network.add(InputLayer(batch_input_shape=(1,amount_AI_inputs)))
+        neural_network.add(Dense(hidden_neurons,activation='relu',use_bias=use_bias))
+        neural_network.add(Dense(len(actions),activation='tanh'))
+        neural_network.compile(loss='mse',optimizer=keras.optimizers.Adam(learning_rate=learning_rate),metrics=['mae']) # mae = mean absolute error, mse = mean squared error
+        print('OK')
+    if load_model and os.path.isfile(model_metadata_path):
+        print('Loading metadata...',end='')
+        metadata=loadJsonFromFile(model_metadata_path)
+        cur_episode=metadata['cur_episode']
+        epsilon=metadata['epsilon']
+        max_scores=metadata['max_scores']
+        metadata={}
+        print('OK')
+    else:
+        cur_episode=0
+        epsilon=1.0
+        max_scores=[]   
+    action=0
+    reward=0
     while(ingame):
-        start=time.time()
-        # start loop
-        game_frame=captureScreen(game_window_rec) 
-        parsed_frame=parseFrame(game_frame,assets,context=context)
-        context=updateContext(context,parsed_frame)
-        if show_speeds and parsed_frame['AI']['speed'] not in speeds:
-            print('speed: {}'.format(parsed_frame['AI']['speed']))
-            speeds.add(parsed_frame['AI']['speed'])
-        if display:
-            to_show=cv2.cvtColor(game_frame,cv2.COLOR_GRAY2BGR) # just to draw boundaries
-            drawRectsOnScene(to_show,parsed_frame['matches']['dino'])
-            drawRectsOnScene(to_show,parsed_frame['matches']['cactus'])
-            drawRectsOnScene(to_show,parsed_frame['matches']['numbers'])
-            drawRectsOnScene(to_show,parsed_frame['matches']['bird'])
-            drawRectsOnScene(to_show,parsed_frame['matches']['gg'])
-            drawRectsOnScene(to_show,parsed_frame['matches']['hi'])
-            cv2.imshow(emulator_window_name,to_show)
-        # end loop
-        if limit_fps!=0:
-            # respect fps
-            delta=int(ms_p_f-float(time.time()-start)/1000)
-            if delta<=0:
-                delta=1
-            if cv2.waitKey(delta)==27: #escape key
-                break
-        else:
-            if cv2.waitKey(1)==27: #escape key
-                break
+        try:
+            start=time.time()
+            # screen read and parse
+            game_frame=captureScreen(game_window_rec)
+            parsed_frame=parseFrame(game_frame,assets,context=context) 
+            last_score=context['last_score']
+            context=updateContext(context,parsed_frame)
+            # AI
+            invert_action_state=False
+            state=normalizeAiValues(parsed_frame['AI'])
+            if parsed_frame['game_is_over']:
+                reward=-lose_game_penalty
+            elif not context['took_action']:
+                if epsilon>=epsilon_confidance and np.random.random()<=epsilon:
+                    action=np.random.randint(0,len(actions))
+                    context['last_actions']=[]
+                else:
+                    pred_actions=neural_network.predict([state])
+                    context['last_actions']=pred_actions[0].tolist()
+                    action=np.argmax(pred_actions)
+                performIntAction(action,actions)
+                context['last_state']=state
+                invert_action_state=True
+                time.sleep(sleep_after_action)
+            else:
+                reward=parsed_frame['score']-last_score
+                if actions[action]=='stay':
+                    reward-=default_behaviour_penalty
+            if (parsed_frame['game_is_over'] or context['took_action']) and len(context['last_state'])>0 and learn:
+                if len(context['last_actions'])==0:
+                    previous_state_mirror_labels=neural_network.predict([context['last_state']])[0].tolist()
+                else:
+                    previous_state_mirror_labels=context['last_actions']
+                ajusted_label_for_action=reward+discount_factor*np.max(neural_network.predict([state]))
+                previous_state_mirror_labels[action]=ajusted_label_for_action
+                neural_network.fit([context['last_state']],[previous_state_mirror_labels],epochs=1,verbose=0)
+                invert_action_state=True
+            if parsed_frame['game_is_over']:
+                if len(context['last_state'])>0:
+                    cur_episode+=1
+                    max_scores.append(parsed_frame['score'])
+                    epsilon=epsilon_min+(epsilon_max-epsilon_min)*np.exp(-epsilon_decay*cur_episode)
+                    if save_model and cur_episode%episodes_frequency_to_save==0:
+                        saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network)
+                else: 
+                    window_pos=getRectangleCenter(game_window_rec)
+                    mouse_pos_backup=pyautogui.position()
+                    pyautogui.click(window_pos['x']-50, window_pos['y'], button='left') # get focus
+                    pyautogui.moveTo(mouse_pos_backup[0],mouse_pos_backup[1])
+                    time.sleep(0.666)
+                performAction('jump') # restart the game
+                context=getFreshContext()
+                time.sleep(0.666)
+            elif invert_action_state:
+                context['took_action']=not context['took_action']
+            # display
+            if show_speeds and parsed_frame['AI']['speed'] not in speeds:
+                print('speed: {}'.format(parsed_frame['AI']['speed']))
+                speeds.add(parsed_frame['AI']['speed'])
+            if display:
+                to_show=cv2.cvtColor(game_frame,cv2.COLOR_GRAY2BGR) # just to draw boundaries
+                drawRectsOnScene(to_show,parsed_frame['matches']['dino'])
+                drawRectsOnScene(to_show,parsed_frame['matches']['cactus'])
+                drawRectsOnScene(to_show,parsed_frame['matches']['numbers'])
+                drawRectsOnScene(to_show,parsed_frame['matches']['bird'])
+                drawRectsOnScene(to_show,parsed_frame['matches']['gg'])
+                drawRectsOnScene(to_show,parsed_frame['matches']['hi'])
+                cv2.imshow(emulator_window_name,to_show)
+            # end loop
+            if limit_fps!=0:
+                # respect fps
+                delta=int(ms_p_f-float(time.time()-start)/1000)
+                if delta<=0:
+                    delta=1
+                if cv2.waitKey(delta)==27: #escape key
+                    break
+            else:
+                if cv2.waitKey(1)==27: #escape key
+                    break
+        except KeyboardInterrupt:
+            print('Caught ctrl+c')
+            try:
+                if save_model and queryYesOrNo('Do you wish to save the weigths?',default=None):
+                    saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network)
+            except:
+                pass
+            sys.exit()
+    if save_model:
+        saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network)
 
 def main(argv):
-    test()
-    # assets,game_window_rec=setup()
-    # ingameLoop(assets,game_window_rec,limit_fps=0,display=True)
-
+    # test()
+    assets,game_window_rec=setup()
+    ingameLoop(assets,game_window_rec,limit_fps=0,display=False)
 
 if __name__=='__main__':
     main(sys.argv[1:])
