@@ -6,11 +6,12 @@ Reinforcement learning using Deep Q-Learning or simply neural netwoorks with Q-l
 
 Dino game ripped by [wayou](https://github.com/wayou/t-rex-runner) and modified by me.
 Mods:
->-- night mode (inverted colors every 700 points) fixed
->-- smaller screen usage
->-- borders around the game
->-- start game container in full size
->-- small bug fixes
+
+ - night mode (inverted colors every 700 points) fixed
+ - smaller screen usage
+ - borders around the game
+ - start game container in full size
+ - small bug fixes
 
 ## To install
 
