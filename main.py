@@ -484,7 +484,6 @@ def parseFrame(scene,assets,context=None):
         next_obstacle_height=next_obstacle['h']
         if context is not None and context['last_time'] is not None and context['last_no_pos_x'] is not None:
             if next_obstacle_pos['x']>context['last_no_pos_x']:
-                print('survived') # TODO remove
                 context['passed_obstacle']=True
             else:
                 context['passed_obstacle']=False
@@ -543,7 +542,7 @@ def updateContext(context,parsed_scene):
     return context
 
 def getFreshContext():
-    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':False,'last_state':[],'last_actions':[],'passed_obstacle':False}
+    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':0,'last_state':[],'last_actions':[],'passed_obstacle':False}
 
 def performAction(action):
     if action=='jump':
@@ -604,6 +603,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
     sleep_after_action=0
     use_bias=True
     # Q-learning
+    frames_to_consider_effect=2
     lose_game_penalty=100
     default_behaviour_penalty=0
     pass_obstacle_reward=10
@@ -654,11 +654,12 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
             last_score=context['last_score']
             context=updateContext(context,parsed_frame)
             # AI
-            invert_action_state=False
+            if context['passed_obstacle']: # TODO remove
+                print('Passed Obstacle! Took action: {}'.format(context['took_action'])) 
             state=normalizeAiValues(parsed_frame['AI'])
             if parsed_frame['game_is_over']:
                 reward=-lose_game_penalty
-            elif not context['took_action']:
+            elif context['took_action']==0:
                 if epsilon>=epsilon_confidance and np.random.random()<=epsilon:
                     action=np.random.randint(0,len(actions))
                     context['last_actions']=[]
@@ -666,17 +667,18 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                     pred_actions=neural_network.predict([state])
                     context['last_actions']=pred_actions[0].tolist()
                     action=np.argmax(pred_actions)
+                reward=0
                 performIntAction(action,actions)
                 context['last_state']=state
-                invert_action_state=True
                 time.sleep(sleep_after_action)
             else:
-                reward=stay_alive_reward if fixed_reward_instead_of_score_based else (parsed_frame['score']-last_score)
-                if actions[action]=='stay':
-                    reward-=default_behaviour_penalty
-                elif context['passed_obstacle']:
+                if context['took_action']==frames_to_consider_effect:
+                    reward+=stay_alive_reward if fixed_reward_instead_of_score_based else (parsed_frame['score']-last_score)
+                    if actions[action]=='stay':
+                        reward-=default_behaviour_penalty
+                if context['passed_obstacle']:
                     reward+=pass_obstacle_reward
-            if (parsed_frame['game_is_over'] or context['took_action']) and len(context['last_state'])>0 and learn:
+            if (parsed_frame['game_is_over'] or context['took_action']==frames_to_consider_effect) and len(context['last_state'])>0 and learn:
                 if len(context['last_actions'])==0:
                     previous_state_mirror_labels=neural_network.predict([context['last_state']])[0].tolist()
                 else:
@@ -699,8 +701,9 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 performAction('jump') # restart the game
                 context=getFreshContext()
                 time.sleep(0.666)
-            elif invert_action_state:
-                context['took_action']=not context['took_action']
+            context['took_action']+=1
+            if context['took_action']>frames_to_consider_effect:
+                context['took_action']=0
             # display
             if show_speeds and parsed_frame['AI']['speed'] not in speeds:
                 print('speed: {}'.format(parsed_frame['AI']['speed']))
