@@ -496,7 +496,7 @@ def parseFrame(scene,assets,context=None):
         speed=0
         if context is not None:
             if context['last_time'] is not None and context['last_no_pos_x'] is not None:
-                if dino_rect['x1']>next_obstacle_pos['x']+5 or next_obstacle_pos['x']>context['last_no_pos_x']:
+                if dino_rect['x1']>next_obstacle_pos['x'] or next_obstacle_pos['x']>context['last_no_pos_x']:
                     context['passed_obstacle']=True
                 else:
                     context['passed_obstacle']=False
@@ -712,7 +712,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 neural_network.fit([context['last_state']],[previous_state_mirror_labels],epochs=1,verbose=0)
                 invert_action_state=True
                 if (verbose):
-                    print('Action: {} - Reward: {} | E: {:.3f} | state: {}'.format(actions[action],reward,epsilon,floatListToFormatedStr(context['last_state'])))
+                    print('Action: {} - Reward: {:4} | E: {:.3f} | state: {}'.format(actions[action],reward,epsilon,floatListToFormatedStr(context['last_state'])))
             if parsed_frame['game_is_over']:
                 if len(context['last_state'])>0:
                     cur_episode+=1
