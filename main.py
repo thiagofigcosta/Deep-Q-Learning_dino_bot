@@ -381,8 +381,8 @@ def parseAndFilterScore(hi,numbers):
     return score, numbers
 
 def getAIMaximumValues():
-    # TODO refine max speed
-    return {'no_hdist':540,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':93}
+    # TODO refine parameters, mainly max speed
+    return {'no_hdist':555,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':93}
 
 def getAIDefaultValues():
     return {'no_hdist':0,'no_vdist':7,'speed':394.1534831108713,'dino_y':15,'ground_y':135}
@@ -493,8 +493,8 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
             speed=0
     else:
         next_obstacle_pos=getRectangleCenter(next_obstacle)
-        next_obstacle_hdistance=next_obstacle_pos['x']-dino_pos['x'] #max(next_obstacle_pos['x']-dino_rect['x1'],0) # TODO choose more appropriate
-        next_obstacle_vdistance=max(ground_y-next_obstacle_pos['y']-default_AI_values['no_vdist'],0)
+        next_obstacle_hdistance=next_obstacle['x0']-dino_pos['x'] #max(next_obstacle_pos['x']-dino_rect['x1'],0) # TODO choose more appropriate
+        next_obstacle_vdistance=max(ground_y-next_obstacle['y0']-default_AI_values['no_vdist'],0)
         next_obstacle_weight=next_obstacle['w']
         next_obstacle_height=next_obstacle['h']
         speed=0
@@ -603,7 +603,23 @@ def getGameFocus(game_window_rec):
     pyautogui.moveTo(mouse_pos_backup[0],mouse_pos_backup[1])
     time.sleep(0.666)
 
-def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True,load_model=True,save_model=True,learn=True,verbose=False,episodes_frequency_to_save=20):
+def thresholdAction(state,actions,normalized=True):
+    action='stay'
+    h_dist=state[0]
+    v_dist=state[1]
+    w=state[2]
+    h=state[3]
+    vel=state[4]
+    dino_h=state[5]
+    # TODO compute manually action based on the state
+    # TODO normalize
+    if h_dist<220:
+        action='jump'
+    elif v_dist>h:
+        action='down'
+    return actions.index(action)
+
+def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True,load_model=True,save_model=True,learn=True,verbose=False,episodes_frequency_to_save=20,episodes_frequency_to_reload=300):
     ingame=True
     if display:
         emulator_window_name='game'
@@ -611,11 +627,11 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
         cv2.moveWindow(emulator_window_name,game_window_rec['x0'],game_window_rec['y1']+66*2)
     if limit_fps!=0:
         s_p_f=1/limit_fps
-        ms_p_f=s_p_f*1000
     context=getFreshContext()
     speeds=set()
     # AI settings start 
     actions=('jump','down','stay')
+    use_AI=True
     # NN
     amount_AI_inputs=6
     learning_rate=0.007
@@ -690,13 +706,17 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
             if parsed_frame['game_is_over']:
                 reward=-lose_game_penalty
             elif context['took_action']==0:
-                if epsilon>=epsilon_confidance and np.random.random()<=epsilon:
-                    action=np.random.randint(0,len(actions))
-                    context['last_actions']=[]
+                if use_AI:
+                    if epsilon>=epsilon_confidance and np.random.random()<=epsilon:
+                        action=np.random.randint(0,len(actions))
+                        context['last_actions']=[]
+                    else:
+                        pred_actions=neural_network.predict([state])
+                        context['last_actions']=pred_actions[0].tolist()
+                        action=np.argmax(pred_actions)
                 else:
-                    pred_actions=neural_network.predict([state])
-                    context['last_actions']=pred_actions[0].tolist()
-                    action=np.argmax(pred_actions)
+                    action=thresholdAction(state,actions,normalized=normalize_inputs)
+                    context['last_actions']=[]
                 reward=0
                 performIntAction(action,actions)
                 context['last_state']=state
@@ -724,17 +744,20 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                     cur_episode+=1
                     max_scores.append(parsed_frame['score'])
                     epsilon=epsilon_min+(epsilon_max-epsilon_min)*np.exp(-epsilon_decay*cur_episode)
-                    if save_model and cur_episode%episodes_frequency_to_save==0:
+                    if save_model and cur_episode%episodes_frequency_to_save==0 and cur_episode>0:
                         saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network)
                 else: 
                     getGameFocus(game_window_rec)
+                if cur_episode>0 and cur_episode%episodes_frequency_to_reload==0: # reload the game to avoid bugs
+                    pyautogui.press('f5')
+                    time.sleep(1.666)
                 performAction('jump') # restart the game
                 context=getFreshContext()
                 time.sleep(0.666)
             else:
                 context['took_action']+=1
                 if context['took_action']>frames_to_consider_effect:
-                    context['took_action']=0
+                    context['took_action']=0 if frames_to_consider_effect>0 else -1
             # display
             if show_speeds and parsed_frame['AI']['speed'] not in speeds:
                 print('speed: {}'.format(parsed_frame['AI']['speed']))
@@ -753,15 +776,18 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
             if limit_fps!=0 and context['took_action']!=0:
                 # respect fps
                 elapsed_seconds=float(end_time-start_time)
+                s_to_wait=s_p_f-elapsed_seconds
+                if s_to_wait<0:
+                    print('WARNING: Low performance! Fixed fps: {} Real fps: {:3f}'.format(limit_fps,(1/elapsed_seconds)))
+                    s_to_wait=0
                 if display:
-                    elapsed_mseconds=1000*elapsed_seconds
-                    delta=int(ms_p_f-elapsed_mseconds)
-                    if delta<=0:
-                        delta=1
-                    if cv2.waitKey(delta)==27: #escape key
+                    ms_to_wait=int(s_to_wait*1000)
+                    if ms_to_wait==0:
+                        ms_to_wait=1
+                    if cv2.waitKey(ms_to_wait)==27: #escape key
                         break
                 else:
-                    time.sleep(max((s_p_f-elapsed_seconds),0))
+                    time.sleep(s_to_wait)
             elif display:
                 if cv2.waitKey(1)==27: #escape key
                     break
