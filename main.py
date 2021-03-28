@@ -387,7 +387,17 @@ def getAIMaximumValues():
 def getAIDefaultValues():
     return {'no_hdist':0,'no_vdist':7,'speed':394.1534831108713,'dino_y':15,'ground_y':135}
 
-def normalizeAiValues(AI,check_out_of_range=True): # TODO change to false
+def parseAiValues(AI):
+    out=[]
+    out.append(AI['no_hdist'])
+    out.append(AI['no_vdist'])
+    out.append(AI['no_w'])
+    out.append(AI['no_h'])
+    out.append(AI['speed'])
+    out.append(AI['dino_y'])
+    return out   
+
+def normalizeAiValues(AI,check_out_of_range=True):
     max_values=getAIMaximumValues()
     out=[]
     out.append(AI['no_hdist']/max_values['no_hdist'])
@@ -399,7 +409,8 @@ def normalizeAiValues(AI,check_out_of_range=True): # TODO change to false
     if check_out_of_range:
         for i,el in enumerate(out):
             if el<0 or el>1:
-                print ('ERROR: element({}) at index {} out of range!'.format(el,i))
+                if el>1 or i!=0: # hdist can be negative
+                    print ('ERROR: element({}) at index {} out of range!'.format(el,i))
     return out
 
 def parseFrame(scene,assets,context=None):
@@ -482,19 +493,23 @@ def parseFrame(scene,assets,context=None):
         next_obstacle_vdistance=max(ground_y-next_obstacle_pos['y']-default_AI_values['no_vdist'],0)
         next_obstacle_weight=next_obstacle['w']
         next_obstacle_height=next_obstacle['h']
-        if context is not None and context['last_time'] is not None and context['last_no_pos_x'] is not None:
-            if next_obstacle_pos['x']>context['last_no_pos_x']:
-                context['passed_obstacle']=True
-            else:
-                context['passed_obstacle']=False
-            if context['last_speed'] is not None:
-                l_speed=context['last_speed']
-            else:
-                l_speed=-1
-            speed=max((context['last_no_pos_x']-next_obstacle_pos['x'])/(cur_time-context['last_time'])-default_AI_values['speed'],0,l_speed) # pixels per second
-            # speed=max((context['last_no_pos_x']-next_obstacle_pos['x']),0,l_speed) # pixels per frame unit
-        else:
-            speed=0
+        speed=0
+        if context is not None:
+            if context['last_time'] is not None and context['last_no_pos_x'] is not None:
+                if dino_rect['x1']>next_obstacle_pos['x']+5 or next_obstacle_pos['x']>context['last_no_pos_x']:
+                    context['passed_obstacle']=True
+                else:
+                    context['passed_obstacle']=False
+                    if context['last_speed'] is not None:
+                        l_speed=context['last_speed']
+                    else:
+                        l_speed=-1
+                    speed=max((context['last_no_pos_x']-next_obstacle_pos['x'])/(cur_time-context['last_time'])-default_AI_values['speed'],0,l_speed) # pixels per second
+                    # speed=max((context['last_no_pos_x']-next_obstacle_pos['x']),0,l_speed) # pixels per frame unit
+                    if l_speed>0 and l_speed*2<speed: # avoid super speed increase
+                        speed=l_speed
+            elif context['last_speed'] is not None:
+                speed=context['last_speed']
 
     return {'dino':has_dino,'amount_cactus':amount_cactus,'amount_birds':amount_birds,'score':score,'amount_numbers':amount_numbers,'game_is_over':has_gg,'cur_time':cur_time,
             'matches':{'dino':dino,'cactus':cactus,'bird':birds,'numbers':numbers,'gg':gg,'hi':hi,'ground':ground},
@@ -542,7 +557,7 @@ def updateContext(context,parsed_scene):
     return context
 
 def getFreshContext():
-    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':0,'last_state':[],'last_actions':[],'passed_obstacle':False}
+    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':-1,'last_state':[],'last_actions':[],'passed_obstacle':False}
 
 def performAction(action):
     if action=='jump':
@@ -560,9 +575,10 @@ def performIntAction(action,actions_list):
     return action_str
 
 def floatListToFormatedStr(f_list):
+    names=['hd','vd','w','h','vel','d_h']
     str_formatted='['
-    for el in f_list:
-        str_formatted+=' {:.3f}'.format(el)
+    for i,el in enumerate(f_list):
+        str_formatted+=' {}:{:.3f}'.format(names[i],el)
     return str_formatted+' ]'
 
 def saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network):
@@ -602,18 +618,20 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
     hidden_neurons=10
     sleep_after_action=0
     use_bias=True
+    normalize_inputs=True
     # Q-learning
-    frames_to_consider_effect=2
+    frames_to_consider_effect=5
     lose_game_penalty=100
     default_behaviour_penalty=0
     pass_obstacle_reward=10
-    stay_alive_reward=1+default_behaviour_penalty
+    stay_alive_reward=0
     fixed_reward_instead_of_score_based=True
     discount_factor=0.95
     epsilon_max=1.0
     epsilon_min=0.101
     epsilon_decay=0.003
     epsilon_confidance=0.1 # stops random shots when below this value
+    stay_alive_reward+=default_behaviour_penalty
     # persistance
     model_weights_path='bot_brain.h5'
     model_metadata_path='bot_metadata.json'
@@ -649,14 +667,20 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
         try:
             start_time=time.time()
             # screen read and parse
-            game_frame=captureScreen(game_window_rec)
-            parsed_frame=parseFrame(game_frame,assets,context=context) 
-            last_score=context['last_score']
-            context=updateContext(context,parsed_frame)
+            if context['took_action']!=0 or context['took_action']<0:
+                if context['took_action']<0:
+                    context['took_action']=0
+                game_frame=captureScreen(game_window_rec)
+                parsed_frame=parseFrame(game_frame,assets,context=context) 
+                last_score=context['last_score']
+                context=updateContext(context,parsed_frame)
+                if normalize_inputs:
+                    state=normalizeAiValues(parsed_frame['AI'])
+                else:
+                    state=parseAiValues(parsed_frame['AI'])
+                if verbose and context['passed_obstacle'] and reward==0:
+                    print('Passed Obstacle! Took action: {}'.format(context['took_action']))
             # AI
-            if context['passed_obstacle']: # TODO remove
-                print('Passed Obstacle! Took action: {}'.format(context['took_action'])) 
-            state=normalizeAiValues(parsed_frame['AI'])
             if parsed_frame['game_is_over']:
                 reward=-lose_game_penalty
             elif context['took_action']==0:
@@ -677,7 +701,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                     if actions[action]=='stay':
                         reward-=default_behaviour_penalty
                 if context['passed_obstacle']:
-                    reward+=pass_obstacle_reward
+                    reward=pass_obstacle_reward
             if (parsed_frame['game_is_over'] or context['took_action']==frames_to_consider_effect) and len(context['last_state'])>0 and learn:
                 if len(context['last_actions'])==0:
                     previous_state_mirror_labels=neural_network.predict([context['last_state']])[0].tolist()
@@ -688,7 +712,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 neural_network.fit([context['last_state']],[previous_state_mirror_labels],epochs=1,verbose=0)
                 invert_action_state=True
                 if (verbose):
-                    print('Action: {} - Reward: {} | epsilon: {:.3f} | state: {}'.format(actions[action],reward,epsilon,floatListToFormatedStr(context['last_state'])))
+                    print('Action: {} - Reward: {} | E: {:.3f} | state: {}'.format(actions[action],reward,epsilon,floatListToFormatedStr(context['last_state'])))
             if parsed_frame['game_is_over']:
                 if len(context['last_state'])>0:
                     cur_episode+=1
@@ -701,9 +725,10 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 performAction('jump') # restart the game
                 context=getFreshContext()
                 time.sleep(0.666)
-            context['took_action']+=1
-            if context['took_action']>frames_to_consider_effect:
-                context['took_action']=0
+            else:
+                context['took_action']+=1
+                if context['took_action']>frames_to_consider_effect:
+                    context['took_action']=0
             # display
             if show_speeds and parsed_frame['AI']['speed'] not in speeds:
                 print('speed: {}'.format(parsed_frame['AI']['speed']))
@@ -719,7 +744,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 cv2.imshow(emulator_window_name,to_show)
             # end loop
             end_time=time.time()
-            if limit_fps!=0:
+            if limit_fps!=0 and context['took_action']!=0:
                 # respect fps
                 elapsed_seconds=float(end_time-start_time)
                 if display:
@@ -731,7 +756,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                         break
                 else:
                     time.sleep(max((s_p_f-elapsed_seconds),0))
-            else:
+            elif display:
                 if cv2.waitKey(1)==27: #escape key
                     break
         except KeyboardInterrupt:
