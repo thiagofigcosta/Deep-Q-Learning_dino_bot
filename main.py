@@ -413,9 +413,13 @@ def normalizeAiValues(AI,check_out_of_range=True):
                     print ('ERROR: element({}) at index {} out of range!'.format(el,i))
     return out
 
-def parseFrame(scene,assets,context=None):
+def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
     cur_time=time.time()
     default_AI_values=getAIDefaultValues()
+    if not subtract_default_inputs:
+        for k,_ in default_AI_values.items():
+            if k!='ground_y':
+                default_AI_values[k]=0
     # color check
     scene_middle_x=int(scene.shape[1]/2)
     scene_middle_y=int(scene.shape[0]/2)
@@ -616,9 +620,11 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
     amount_AI_inputs=6
     learning_rate=0.007
     hidden_neurons=10
-    sleep_after_action=0
+    action_function='tanh'
     use_bias=True
     normalize_inputs=True
+    sleep_after_action=0
+    subtract_default_inputs=normalize_inputs
     # Q-learning
     frames_to_consider_effect=5
     lose_game_penalty=100
@@ -644,8 +650,8 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
         print('Creating model...',end='')
         neural_network=Sequential()
         neural_network.add(InputLayer(batch_input_shape=(1,amount_AI_inputs)))
-        neural_network.add(Dense(hidden_neurons,activation='tanh',use_bias=use_bias))
-        neural_network.add(Dense(len(actions),activation='tanh',use_bias=use_bias))
+        neural_network.add(Dense(hidden_neurons,activation=action_function,use_bias=use_bias))
+        neural_network.add(Dense(len(actions),activation=action_function,use_bias=use_bias))
         neural_network.compile(loss='mse',optimizer=keras.optimizers.Adam(learning_rate=learning_rate),metrics=['mae']) # mae = mean absolute error, mse = mean squared error
         print('OK')
     if load_model and os.path.isfile(model_metadata_path):
@@ -671,7 +677,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 if context['took_action']<0:
                     context['took_action']=0
                 game_frame=captureScreen(game_window_rec)
-                parsed_frame=parseFrame(game_frame,assets,context=context) 
+                parsed_frame=parseFrame(game_frame,assets,context=context,subtract_default_inputs=subtract_default_inputs) 
                 last_score=context['last_score']
                 context=updateContext(context,parsed_frame)
                 if normalize_inputs:
