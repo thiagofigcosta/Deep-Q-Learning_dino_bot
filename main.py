@@ -42,10 +42,10 @@ def pointAndSizeToRectangle(x,y,w,h):
 def getRectangleCenter(rec):
     return {'x':int(rec['x0']+rec['w']/2),'y':int(rec['y0']+rec['h']/2)}
 
-def checkIfRectanglesIntersects(rec_a,rec_b,offset=0):
-    rec_0=rec_a.copy()
-    rec_1=rec_b.copy()
+def checkIfRectanglesIntersects(rec_a,rec_b,offset=0,fast_check=True):
     if (offset>0):
+        rec_0=rec_a.copy()
+        rec_1=rec_b.copy()
         offset=int(offset/2)
         rec_0['x0']-=offset
         rec_0['y0']-=offset
@@ -55,6 +55,9 @@ def checkIfRectanglesIntersects(rec_a,rec_b,offset=0):
         rec_1['y0']-=offset
         rec_1['x1']+=offset
         rec_1['y1']+=offset
+    else:
+        rec_0=rec_a
+        rec_1=rec_b
     left_rec=None
     right_rec=None
     if rec_0['x0'] < rec_1['x0']:
@@ -73,6 +76,8 @@ def checkIfRectanglesIntersects(rec_a,rec_b,offset=0):
         low_rec=rec_0
     if (left_rec['x1'] < right_rec['x0']) or (low_rec['y0'] > top_rec['y1']):
         return 0 # does not overlap
+    elif fast_check:
+        return 4 # overlap
     elif (left_rec['x1'] > right_rec['x1']) or (low_rec['y1'] < top_rec['y1']): 
         if rec_0['w'] >= rec_1['w'] or rec_0['h'] >= rec_1['h']:
             return 2 # full overlap, contains - 0 is bigger
@@ -108,7 +113,7 @@ def getEquivalentRectangles(rec_0,rec_1,offset=0):
             y_1=rec_0['y1']
         else:
             y_1=rec_1['y1']
-        equivalent.append(pointAndSizeToRectangle(x_0,y_0,(x_1-x_0),(y_1-y_0)))
+        equivalent.append(pointsToRectangle(x_0,y_0,x_1,y_1))
     return equivalent
 
 
@@ -144,8 +149,6 @@ def simplifyOverlappingCactus(cactus,offset=0):
                         eq=getEquivalentRectangles(cactus_0['rect'],cactus_1['rect'],offset=offset)
                         if len(eq)==1:
                             cactus_0['rect']=eq[0]
-                            cactus_0['trust']=(cactus_0['trust']+cactus_1['trust'])/2
-                            cactus_0['idx']=-1
                             already_simplified_indexes.add(j)
                             go_again=True
                             break
@@ -203,10 +206,14 @@ def getGameScreenBoundaries():
     return pointsToRectangle(x0,y0,x1,y1)
 
 
-def captureScreen(area_rec):
-    screen=np.array(pyautogui.screenshot())
-    screen=screen[area_rec['y0']:area_rec['y1'],area_rec['x0']:area_rec['x1']]
-    screen=cv2.cvtColor(screen, cv2.COLOR_RGB2GRAY)
+def captureScreen(area_rec,method=0):
+    if method==0:
+        screen=np.array(pyautogui.screenshot(region=(area_rec['x0'],area_rec['y0'],area_rec['w'],area_rec['h'])))
+        screen=cv2.cvtColor(screen,cv2.COLOR_RGB2GRAY)
+    else:
+        screen=np.array(pyautogui.screenshot())
+        screen=screen[area_rec['y0']:area_rec['y1'],area_rec['x0']:area_rec['x1']]
+        screen=cv2.cvtColor(screen, cv2.COLOR_RGB2GRAY)
     return screen 
 
 def saveJsonToFile(json_obj,path,compress=False):
@@ -320,11 +327,8 @@ def matchSprites(screen,template_list,find_all,stop_on_first=True,sensitivity=(0
             loc=np.where(np.logical_or(np.logical_and(np.greater_equal(res,img_match_threshold),np.logical_not(search_min)),np.logical_and(np.less_equal(res,img_match_min_diff),search_min))) # (res>=img_match_threshold and not search_min) or (res<=img_match_min_diff and search_min)
             filtered_locations=zip(*loc[::-1])
             for pt in filtered_locations:
-                val=0 # TODO implement me, I want to get the points and their values
-                if search_min:
-                    val=(255-val)/255
                 rec=pointAndSizeToRectangle(pt[0]+x_offset,pt[1]+y_offset,sprite_w,sprite_h)
-                found_elements.append({'rect':rec,'idx':i,'trust':val})
+                found_elements.append({'rect':rec,'idx':i})
         else:
             min_val,max_val,min_loc,max_loc=cv2.minMaxLoc(res)
             if search_min:
@@ -366,14 +370,15 @@ def drawRectsOnScene(scene_bgr,found_sprites):
 def parseAndFilterScore(hi,numbers):
     if len(numbers)<1:
         return 0, numbers
-    if type(hi) is list:
-        if len(hi)<1:
-            return 0, numbers
+    if len(hi)<1:
+        hi=None
+    else:
         hi=hi[0]
-    hi_x1=hi['rect']['x1']
-    number_size=numbers[0]['rect']['x1']-numbers[0]['rect']['x0']
-    cur_score_start_pos=hi_x1+7*number_size
-    numbers=[n for n in numbers if n['rect']['x0']>cur_score_start_pos]
+    if hi is not None:
+        hi_x1=hi['rect']['x1']
+        number_size=numbers[0]['rect']['x1']-numbers[0]['rect']['x0']
+        cur_score_start_pos=hi_x1+7*number_size
+        numbers=[n for n in numbers if n['rect']['x0']>cur_score_start_pos]
     numbers=sorted(numbers,key=lambda k:k['rect']['x0'],reverse=True) 
     score=0
     for i,number in enumerate(numbers):
@@ -381,30 +386,36 @@ def parseAndFilterScore(hi,numbers):
     return score, numbers
 
 def getAIMaximumValues():
-    # TODO refine values
-    return {'no_hdist':555,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':93}
+    # TODO refine max speed value
+    return {'no_hdist':555,'no_vdist':45,'no_w':74,'no_h':54,'speed':1000,'dino_y':93}
 
-def getAIDefaultValues():
-    return {'no_hdist':0,'no_vdist':7,'speed':394.1534831108713,'dino_y':15,'ground_y':135}
+def getAIDefaultValues(not_only_ground=False):
+    ground_y=135
+    if not_only_ground:
+        return {'no_hdist':0,'no_vdist':7,'speed':394.1534831108713,'dino_y':15,'ground_y':ground_y}
+    else:
+        return {'no_hdist':0,'no_vdist':0,'speed':0,'dino_y':0,'ground_y':ground_y}
 
-def parseAiValues(AI):
+def parseAiValues(AI,ignore_speed_input=False):
     out=[]
     out.append(AI['no_hdist'])
     out.append(AI['no_vdist'])
     out.append(AI['no_w'])
     out.append(AI['no_h'])
-    out.append(AI['speed'])
+    if not ignore_speed_input:
+        out.append(AI['speed'])
     out.append(AI['dino_y'])
     return out   
 
-def normalizeAiValues(AI,check_out_of_range=True):
+def normalizeAiValues(AI,check_out_of_range=True,ignore_speed_input=False):
     max_values=getAIMaximumValues()
     out=[]
     out.append(AI['no_hdist']/max_values['no_hdist'])
     out.append(AI['no_vdist']/max_values['no_vdist'])
     out.append(AI['no_w']/max_values['no_w'])
     out.append(AI['no_h']/max_values['no_h'])
-    out.append(AI['speed']/max_values['speed'])
+    if not ignore_speed_input:
+        out.append(AI['speed']/max_values['speed'])
     out.append(AI['dino_y']/max_values['dino_y'])
     if check_out_of_range:
         for i,el in enumerate(out):
@@ -413,13 +424,9 @@ def normalizeAiValues(AI,check_out_of_range=True):
                     print ('ERROR: element({}) at index {} out of range!'.format(el,i))
     return out
 
-def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
+def parseFrame(scene,assets,context=None,subtract_default_inputs=True,display=False,ignore_speed_input=False):
     cur_time=time.time()
-    default_AI_values=getAIDefaultValues()
-    if not subtract_default_inputs:
-        for k,_ in default_AI_values.items():
-            if k!='ground_y':
-                default_AI_values[k]=0
+    default_AI_values=getAIDefaultValues(not_only_ground=subtract_default_inputs)
     # color check
     scene_middle_x=int(scene.shape[1]/2)
     scene_middle_y=int(scene.shape[0]/2)
@@ -443,14 +450,14 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
         dino_pos={'x':None,'y':None}
         dino_rect=None
     # cactus
-    cactus=matchSprites(scene,assets['cactus'],find_all=True,sensitivity=(0.8,10))
+    cactus=matchSprites(scene,assets['cactus'],find_all=True,sensitivity=(0.95,1))
     cactus=simplifyOverlappingCactus(cactus,offset=2)
     amount_cactus=len(cactus)
     # bird
     birds=matchSprites(scene,assets['bird'],find_all=True,sensitivity=(0.8,10))
     amount_birds=len(birds)
     # numbers
-    x_offset=int(scene.shape[1]/2)
+    x_offset=scene_middle_x
     score_rect=pointAndSizeToRectangle(x_offset,0,scene.shape[1],int(scene.shape[0]*.18))
     scene_upper=scene[score_rect['y0']:score_rect['y1'],score_rect['x0']:score_rect['x1']]
     numbers=matchSprites(scene_upper,assets['numbers'],find_all=True,x_offset=x_offset,sensitivity=(0.95,1))
@@ -458,7 +465,7 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
     score,numbers=parseAndFilterScore(hi,numbers)
     if context is not None:
         score=max(context['last_score'],score)
-    has_hi=len(hi)==1
+    # has_hi=len(hi)==1
     amount_numbers=len(numbers)
     # gg
     gg=matchSprites(scene,assets['game_over'],find_all=False,sensitivity=(0.8,10))
@@ -479,49 +486,66 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
         dino_y=max(ground_y-dino_pos['y']-default_AI_values['dino_y'],0)
     else:
         dino_y=0 
-    if next_obstacle is None or dino_rect is None:
-        max_AI_values=getAIMaximumValues()
-        next_obstacle_pos={'x':None,'y':None}
-        next_obstacle_hdistance=max_AI_values['no_hdist']
-        next_obstacle_vdistance=max_AI_values['no_vdist']
-        next_obstacle_weight=0
-        next_obstacle_height=0 
-        if context is not None:
-            context['passed_obstacle']=False
-            context['already_passed_obstacle']=False
-            speed=context['last_speed']
-        else:
-            speed=0
-    else:
+    if next_obstacle is not None and dino_rect is not None:
         next_obstacle_pos=getRectangleCenter(next_obstacle)
         next_obstacle_hdistance=next_obstacle['x0']-dino_pos['x'] #max(next_obstacle_pos['x']-dino_rect['x1'],0)
-        next_obstacle_vdistance=max(ground_y-next_obstacle['y0']-default_AI_values['no_vdist'],0)
+        next_obstacle_vdistance=max(ground_y-next_obstacle['y1']-default_AI_values['no_vdist'],0)
         next_obstacle_weight=next_obstacle['w']
         next_obstacle_height=next_obstacle['h']
         speed=0
         if context is not None:
-            if context['last_time'] is not None and context['last_no_pos_x'] is not None:
-                if (dino_rect['x1']>next_obstacle_pos['x'] or next_obstacle_pos['x']>context['last_no_pos_x']) and not context['already_passed_obstacle']:
-                    context['passed_obstacle']=True
-                    context['already_passed_obstacle']=True
-                else:
-                    context['passed_obstacle']=False
-                    if context['last_speed'] is not None:
-                        l_speed=context['last_speed']
-                    else:
-                        l_speed=-1
+            l_speed=context['last_speed']
+            has_new_obstacle=context['last_no_pos_x'] is not None and next_obstacle_pos['x']>=context['last_no_pos_x']
+            if (dino_rect['x1']>next_obstacle_pos['x'] or has_new_obstacle):# and not context['already_passed_obstacle']:
+                context['passed_obstacle']=True
+                context['already_passed_obstacle']=True
+            if has_new_obstacle:
+                context['already_passed_obstacle']=False
+            if not ignore_speed_input:
+                if context['last_time'] is not None and context['last_no_pos_x'] is not None and not has_new_obstacle: # compute speed
                     speed=max((context['last_no_pos_x']-next_obstacle_pos['x'])/(cur_time-context['last_time'])-default_AI_values['speed'],0,l_speed) # pixels per second
                     # speed=max((context['last_no_pos_x']-next_obstacle_pos['x']),0,l_speed) # pixels per frame unit
                     if l_speed>0 and l_speed*2<speed: # avoid super speed increase
                         speed=l_speed
-            elif context['last_speed'] is not None:
-                speed=context['last_speed']
-            if context['last_no_pos_x'] is not None and next_obstacle_pos['x']>context['last_no_pos_x']: # new obstable
+                else:
+                    speed=l_speed
+            else:
+                speed=-1
+    else:
+        max_AI_values=getAIMaximumValues()
+        next_obstacle_hdistance=max_AI_values['no_hdist']
+        next_obstacle_vdistance=max_AI_values['no_vdist']
+        if next_obstacle is not None:
+            next_obstacle_pos=getRectangleCenter(next_obstacle)
+            next_obstacle_vdistance=max(ground_y-next_obstacle['y1']-default_AI_values['no_vdist'],0)
+            next_obstacle_weight=next_obstacle['w']
+            next_obstacle_height=next_obstacle['h']
+            if context is not None:
+                has_new_obstacle=context['last_no_pos_x'] is not None and next_obstacle_pos['x']>=context['last_no_pos_x']
+        else:
+            next_obstacle_pos={'x':None,'y':None}
+            next_obstacle_weight=0
+            next_obstacle_height=0 
+            if context is not None:
+                has_new_obstacle=context['last_no_pos_x'] is not None
+        if context is not None:
+            if has_new_obstacle:# and not context['already_passed_obstacle']:
+                context['passed_obstacle']=True
+                context['already_passed_obstacle']=True
+            else:
+                context['passed_obstacle']=False
                 context['already_passed_obstacle']=False
-
-    return {'dino':has_dino,'amount_cactus':amount_cactus,'amount_birds':amount_birds,'score':score,'amount_numbers':amount_numbers,'game_is_over':has_gg,'cur_time':cur_time,
+            speed=context['last_speed']
+        else:
+            speed=0
+    if display:
+        return {'dino':has_dino,'amount_cactus':amount_cactus,'amount_birds':amount_birds,'score':score,'amount_numbers':amount_numbers,'game_is_over':has_gg,'cur_time':cur_time,
             'matches':{'dino':dino,'cactus':cactus,'bird':birds,'numbers':numbers,'gg':gg,'hi':hi,'ground':ground},
             'positions':{'dino':dino_pos,'no_pos':next_obstacle_pos},
+            'AI':{'no_hdist':next_obstacle_hdistance,'no_vdist':next_obstacle_vdistance,'no_w':next_obstacle_weight,'no_h':next_obstacle_height,'speed':speed,'dino_y':dino_y}}
+    else:
+        return {'score':score,'game_is_over':has_gg,'cur_time':cur_time,
+            'positions':{'no_pos':next_obstacle_pos},
             'AI':{'no_hdist':next_obstacle_hdistance,'no_vdist':next_obstacle_vdistance,'no_w':next_obstacle_weight,'no_h':next_obstacle_height,'speed':speed,'dino_y':dino_y}}
 
 def test():
@@ -529,7 +553,7 @@ def test():
     scene_paths=['games/sprites/dino/screenshots/bird.png','games/sprites/dino/screenshots/bird_high.png','games/sprites/dino/screenshots/game_over.png','games/sprites/dino/screenshots/inverted_screen.png','games/sprites/dino/screenshots/nested_obstacles.png','games/sprites/dino/screenshots/no_obstacles.png']
     for i,path in enumerate(scene_paths):
         scene=cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        scene_parsed=parseFrame(scene,assets)
+        scene_parsed=parseFrame(scene,assets,display=True)
         # print
         print('Scene {}'.format(i))
         print('\tScore: {}'.format(scene_parsed['score']))
@@ -565,15 +589,16 @@ def updateContext(context,parsed_scene):
     return context
 
 def getFreshContext():
-    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':-1,'last_state':[],'last_actions':[],'passed_obstacle':False,'already_passed_obstacle':False}
+    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'action_state':-1,'last_state':[],'last_actions':[],'passed_obstacle':False,'already_passed_obstacle':False}
 
 def performAction(action):
+    interval=0
     if action=='jump':
         pyautogui.keyUp('down')
-        pyautogui.press('up')
+        pyautogui.press('up',interval=interval)
     elif action=='down':
         pyautogui.keyDown('down')
-        # pyautogui.press('down')
+        # pyautogui.press('down',interval=interval)
     else: # action==stay
         pyautogui.keyUp('down')
 
@@ -582,8 +607,10 @@ def performIntAction(action,actions_list):
     performAction(action_str)
     return action_str
 
-def floatListToFormatedStr(f_list):
+def floatListToFormatedStr(f_list,ignore_speed_input=False):
     names=['hd','vd','w','h','vel','d_h']
+    if ignore_speed_input:
+        names.pop(4)
     str_formatted='['
     for i,el in enumerate(f_list):
         str_formatted+=' {}:{:.3f}'.format(names[i],el)
@@ -614,9 +641,8 @@ def thresholdAction(state,actions,normalized=True):
     w=state[2]
     h=state[3]
     vel=state[4]
-    dino_h=state[5]
-    # TODO compute manually action based on the state
-    # TODO normalize
+    dino_y=state[5]
+    # TODO compute manually action based on the state, normalize thresholds when applicable
     if h_dist<220:
         action='jump'
     elif v_dist>h:
@@ -625,7 +651,7 @@ def thresholdAction(state,actions,normalized=True):
 
 def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False,load_model=True,save_model=True,learn=True,verbose=False,episodes_frequency_to_save=20,episodes_frequency_to_reload=300):
     ingame=True
-    max_fps_warnings=30
+    max_fps_warnings=15
     if display:
         emulator_window_name='game'
         cv2.namedWindow(emulator_window_name)
@@ -644,10 +670,13 @@ def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False
     action_function='relu'
     use_bias=True
     normalize_inputs=False
+    ignore_speed_input=True
     sleep_after_action=0
     subtract_default_inputs=normalize_inputs
+    if ignore_speed_input:
+        amount_AI_inputs-=1
     # Q-learning
-    frames_to_consider_effect=2
+    frames_to_consider_effect=3
     lose_game_penalty=100
     default_behaviour_penalty=0
     pass_obstacle_reward=10
@@ -696,23 +725,23 @@ def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False
         try:
             start_time=time.time()
             # screen read and parse
-            if context['took_action']!=0 or context['took_action']<0:
-                if context['took_action']<0:
-                    context['took_action']=0
+            if context['action_state']!=0 or context['action_state']<0:
+                if context['action_state']<0:
+                    context['action_state']=0
                 game_frame=captureScreen(game_window_rec)
-                parsed_frame=parseFrame(game_frame,assets,context=context,subtract_default_inputs=subtract_default_inputs) 
+                parsed_frame=parseFrame(game_frame,assets,context=context,subtract_default_inputs=subtract_default_inputs,display=display,ignore_speed_input=ignore_speed_input) 
                 last_score=context['last_score']
                 context=updateContext(context,parsed_frame)
                 if normalize_inputs:
-                    state=normalizeAiValues(parsed_frame['AI'])
+                    state=normalizeAiValues(parsed_frame['AI'],ignore_speed_input=ignore_speed_input)
                 else:
-                    state=parseAiValues(parsed_frame['AI'])
+                    state=parseAiValues(parsed_frame['AI'],ignore_speed_input=ignore_speed_input)
                 if verbose and context['passed_obstacle'] and reward==0:
-                    print('Passed Obstacle! Took action: {}'.format(context['took_action']))
+                    print('Passed Obstacle! Action state: {}'.format(context['action_state']))
             # AI
             if parsed_frame['game_is_over']:
                 reward=-lose_game_penalty
-            elif context['took_action']==0:
+            elif context['action_state']==0: # need to chose action
                 if use_AI:
                     if epsilon>=epsilon_confidance and np.random.random()<=epsilon:
                         action=np.random.randint(0,len(actions))
@@ -727,15 +756,16 @@ def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False
                 reward=0
                 performIntAction(action,actions)
                 context['last_state']=state
-                time.sleep(sleep_after_action)
-            else:
-                if context['took_action']==frames_to_consider_effect:
+                if sleep_after_action>0:
+                    time.sleep(sleep_after_action)
+            else: # analyzing next frames to compute reward
+                if context['action_state']==frames_to_consider_effect:
                     reward+=stay_alive_reward if fixed_reward_instead_of_score_based else (parsed_frame['score']-last_score)
                     if actions[action]=='stay':
                         reward-=default_behaviour_penalty
                 if context['passed_obstacle']:
                     reward=pass_obstacle_reward
-            if (parsed_frame['game_is_over'] or context['took_action']==frames_to_consider_effect) and len(context['last_state'])>0 and learn:
+            if (parsed_frame['game_is_over'] or context['action_state']==frames_to_consider_effect) and len(context['last_state'])>0 and learn: # train the network
                 if len(context['last_actions'])==0:
                     previous_state_mirror_labels=neural_network.predict([context['last_state']])[0].tolist()
                 else:
@@ -743,10 +773,9 @@ def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False
                 ajusted_label_for_action=reward+discount_factor*np.max(neural_network.predict([state]))
                 previous_state_mirror_labels[action]=ajusted_label_for_action
                 neural_network.fit([context['last_state']],[previous_state_mirror_labels],epochs=1,verbose=0)
-                invert_action_state=True
                 if (verbose):
-                    print('Action: {} - Reward: {:4} | E: {:.3f} | state: {}'.format(actions[action],reward,epsilon,floatListToFormatedStr(context['last_state'])))
-            if parsed_frame['game_is_over']:
+                    print('Action: {} - Reward: {:4} | E: {:.3f} | state: {}'.format(actions[action],reward,epsilon,floatListToFormatedStr(context['last_state'],ignore_speed_input=ignore_speed_input)))
+            if parsed_frame['game_is_over']: # prepare for the next try
                 if len(context['last_state'])>0:
                     cur_episode+=1
                     max_scores.append(parsed_frame['score'])
@@ -755,16 +784,16 @@ def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False
                         saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network)
                 else: 
                     getGameFocus(game_window_rec)
-                if cur_episode>0 and cur_episode%episodes_frequency_to_reload==0: # reload the game to avoid bugs
+                if cur_episode>0 and cur_episode%episodes_frequency_to_reload==0: # reload the game to avoid the bug where the dino is placed after the correct position
                     pyautogui.press('f5')
                     time.sleep(1.666)
                 performAction('jump') # restart the game
                 context=getFreshContext()
                 time.sleep(0.666)
             else:
-                context['took_action']+=1
-                if context['took_action']>frames_to_consider_effect:
-                    context['took_action']=0 if frames_to_consider_effect>0 else -1
+                context['action_state']+=1
+                if context['action_state']>frames_to_consider_effect:
+                    context['action_state']=0 if frames_to_consider_effect>0 else -1
             # display
             if show_speeds and parsed_frame['AI']['speed'] not in speeds:
                 print('speed: {}'.format(parsed_frame['AI']['speed']))
@@ -780,7 +809,7 @@ def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False
                 cv2.imshow(emulator_window_name,to_show)
             # end loop
             end_time=time.time()
-            if limit_fps!=0 and context['took_action']!=0:
+            if limit_fps!=0 and context['action_state']!=0:
                 # respect fps
                 elapsed_seconds=float(end_time-start_time)
                 s_to_wait=s_p_f-elapsed_seconds
@@ -788,14 +817,15 @@ def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False
                     if not parsed_frame['game_is_over'] and cur_fps_warnings<max_fps_warnings:
                         cur_fps_warnings+=1
                         print('WARNING: Low performance! Fixed fps: {} Real fps: {:.3f}'.format(limit_fps,(1/elapsed_seconds)))
-                    s_to_wait=0
+                        if cur_fps_warnings==max_fps_warnings:
+                            print('WARNING: Last FPS warning!')
                 if display:
                     ms_to_wait=int(s_to_wait*1000)
-                    if ms_to_wait==0:
+                    if ms_to_wait<0:
                         ms_to_wait=1
                     if cv2.waitKey(ms_to_wait)==27: #escape key
                         break
-                else:
+                elif s_to_wait>0:
                     time.sleep(s_to_wait)
             elif display:
                 if cv2.waitKey(1)==27: #escape key
@@ -812,9 +842,12 @@ def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False
         saveModel(model_weights_path,model_metadata_path,cur_episode,epsilon,max_scores,neural_network)
 
 def main(argv):
-    # test()
-    assets,game_window_rec=setup()
-    playDino(assets,game_window_rec,limit_fps=10,display=False,verbose=True)
+    test_instead_of_play=False
+    if test_instead_of_play:
+        test()
+    else:
+        assets,game_window_rec=setup()
+        playDino(assets,game_window_rec,limit_fps=10,display=False,verbose=True)
 
 if __name__=='__main__':
     main(sys.argv[1:])
