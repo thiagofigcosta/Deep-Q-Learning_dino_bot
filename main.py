@@ -381,7 +381,7 @@ def parseAndFilterScore(hi,numbers):
     return score, numbers
 
 def getAIMaximumValues():
-    # TODO refine parameters, mainly max speed
+    # TODO refine values
     return {'no_hdist':555,'no_vdist':59,'no_w':74,'no_h':54,'speed':1000,'dino_y':93}
 
 def getAIDefaultValues():
@@ -494,7 +494,7 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
             speed=0
     else:
         next_obstacle_pos=getRectangleCenter(next_obstacle)
-        next_obstacle_hdistance=next_obstacle['x0']-dino_pos['x'] #max(next_obstacle_pos['x']-dino_rect['x1'],0) # TODO choose more appropriate
+        next_obstacle_hdistance=next_obstacle['x0']-dino_pos['x'] #max(next_obstacle_pos['x']-dino_rect['x1'],0)
         next_obstacle_vdistance=max(ground_y-next_obstacle['y0']-default_AI_values['no_vdist'],0)
         next_obstacle_weight=next_obstacle['w']
         next_obstacle_height=next_obstacle['h']
@@ -623,7 +623,7 @@ def thresholdAction(state,actions,normalized=True):
         action='down'
     return actions.index(action)
 
-def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True,load_model=True,save_model=True,learn=True,verbose=False,episodes_frequency_to_save=20,episodes_frequency_to_reload=300):
+def playDino(assets,game_window_rec,limit_fps=30,display=False,show_speeds=False,load_model=True,save_model=True,learn=True,verbose=False,episodes_frequency_to_save=20,episodes_frequency_to_reload=300):
     ingame=True
     max_fps_warnings=30
     if display:
@@ -814,7 +814,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
 def main(argv):
     # test()
     assets,game_window_rec=setup()
-    ingameLoop(assets,game_window_rec,limit_fps=10,display=False,verbose=True)
+    playDino(assets,game_window_rec,limit_fps=10,display=False,verbose=True)
 
 if __name__=='__main__':
     main(sys.argv[1:])
