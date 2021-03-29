@@ -625,6 +625,7 @@ def thresholdAction(state,actions,normalized=True):
 
 def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=True,load_model=True,save_model=True,learn=True,verbose=False,episodes_frequency_to_save=20,episodes_frequency_to_reload=300):
     ingame=True
+    max_fps_warnings=30
     if display:
         emulator_window_name='game'
         cv2.namedWindow(emulator_window_name)
@@ -688,6 +689,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
         max_scores=[]   
     action=0
     reward=0
+    cur_fps_warnings=0
     getGameFocus(game_window_rec)
     performAction('jump')
     while(ingame):
@@ -783,7 +785,8 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 elapsed_seconds=float(end_time-start_time)
                 s_to_wait=s_p_f-elapsed_seconds
                 if s_to_wait<0:
-                    if not parsed_frame['game_is_over']:
+                    if not parsed_frame['game_is_over'] and cur_fps_warnings<max_fps_warnings:
+                        cur_fps_warnings+=1
                         print('WARNING: Low performance! Fixed fps: {} Real fps: {:.3f}'.format(limit_fps,(1/elapsed_seconds)))
                     s_to_wait=0
                 if display:
