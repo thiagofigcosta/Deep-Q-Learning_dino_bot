@@ -488,6 +488,7 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
         next_obstacle_height=0 
         if context is not None:
             context['passed_obstacle']=False
+            context['already_passed_obstacle']=False
             speed=context['last_speed']
         else:
             speed=0
@@ -500,8 +501,9 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
         speed=0
         if context is not None:
             if context['last_time'] is not None and context['last_no_pos_x'] is not None:
-                if dino_rect['x1']>next_obstacle_pos['x'] or next_obstacle_pos['x']>context['last_no_pos_x']:
+                if (dino_rect['x1']>next_obstacle_pos['x'] or next_obstacle_pos['x']>context['last_no_pos_x']) and not context['already_passed_obstacle']:
                     context['passed_obstacle']=True
+                    context['already_passed_obstacle']=True
                 else:
                     context['passed_obstacle']=False
                     if context['last_speed'] is not None:
@@ -514,6 +516,8 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True):
                         speed=l_speed
             elif context['last_speed'] is not None:
                 speed=context['last_speed']
+            if context['last_no_pos_x'] is not None and next_obstacle_pos['x']>context['last_no_pos_x']: # new obstable
+                context['already_passed_obstacle']=False
 
     return {'dino':has_dino,'amount_cactus':amount_cactus,'amount_birds':amount_birds,'score':score,'amount_numbers':amount_numbers,'game_is_over':has_gg,'cur_time':cur_time,
             'matches':{'dino':dino,'cactus':cactus,'bird':birds,'numbers':numbers,'gg':gg,'hi':hi,'ground':ground},
@@ -561,7 +565,7 @@ def updateContext(context,parsed_scene):
     return context
 
 def getFreshContext():
-    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':-1,'last_state':[],'last_actions':[],'passed_obstacle':False}
+    return {'last_time':None,'last_no_pos_x':None,'last_speed':0,'last_score':0,'took_action':-1,'last_state':[],'last_actions':[],'passed_obstacle':False,'already_passed_obstacle':False}
 
 def performAction(action):
     if action=='jump':
@@ -635,14 +639,14 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
     # NN
     amount_AI_inputs=6
     learning_rate=0.007
-    hidden_neurons=10
-    action_function='tanh'
+    hidden_neurons=6
+    action_function='relu'
     use_bias=True
-    normalize_inputs=True
+    normalize_inputs=False
     sleep_after_action=0
     subtract_default_inputs=normalize_inputs
     # Q-learning
-    frames_to_consider_effect=5
+    frames_to_consider_effect=2
     lose_game_penalty=100
     default_behaviour_penalty=0
     pass_obstacle_reward=10
@@ -651,7 +655,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
     discount_factor=0.95
     epsilon_max=1.0
     epsilon_min=0.101
-    epsilon_decay=0.003
+    epsilon_decay=0.03
     epsilon_confidance=0.1 # stops random shots when below this value
     stay_alive_reward+=default_behaviour_penalty
     # persistance
@@ -685,6 +689,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
     action=0
     reward=0
     getGameFocus(game_window_rec)
+    performAction('jump')
     while(ingame):
         try:
             start_time=time.time()
@@ -778,7 +783,8 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
                 elapsed_seconds=float(end_time-start_time)
                 s_to_wait=s_p_f-elapsed_seconds
                 if s_to_wait<0:
-                    print('WARNING: Low performance! Fixed fps: {} Real fps: {:3f}'.format(limit_fps,(1/elapsed_seconds)))
+                    if not parsed_frame['game_is_over']:
+                        print('WARNING: Low performance! Fixed fps: {} Real fps: {:.3f}'.format(limit_fps,(1/elapsed_seconds)))
                     s_to_wait=0
                 if display:
                     ms_to_wait=int(s_to_wait*1000)
@@ -805,7 +811,7 @@ def ingameLoop(assets,game_window_rec,limit_fps=30,display=False,show_speeds=Tru
 def main(argv):
     # test()
     assets,game_window_rec=setup()
-    ingameLoop(assets,game_window_rec,limit_fps=20,display=False,verbose=True)
+    ingameLoop(assets,game_window_rec,limit_fps=10,display=False,verbose=True)
 
 if __name__=='__main__':
     main(sys.argv[1:])
