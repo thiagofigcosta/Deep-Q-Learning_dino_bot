@@ -424,7 +424,7 @@ def normalizeAiValues(AI,check_out_of_range=True,ignore_speed_input=False):
                     print ('ERROR: element({}) at index {} out of range!'.format(el,i))
     return out
 
-def parseFrame(scene,assets,context=None,subtract_default_inputs=True,display=False,ignore_speed_input=False):
+def parseFrame(scene,assets,context=None,subtract_default_inputs=True,display=False,ignore_speed_input=False,match_half_screen=True):
     cur_time=time.time()
     default_AI_values=getAIDefaultValues(not_only_ground=subtract_default_inputs)
     # color check
@@ -432,6 +432,10 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True,display=Fa
     scene_middle_y=int(scene.shape[0]/2)
     if scene[scene_middle_y][scene_middle_x]==0: # scene colors are inverted
         scene=255-scene
+    scene_to_match=scene
+    if match_half_screen:
+        half_rect=pointAndSizeToRectangle(0,0,scene_middle_x,scene.shape[0])
+        scene_to_match=scene[half_rect['y0']:half_rect['y1'],half_rect['x0']:half_rect['x1']]
     # ground
     ground_rect=pointAndSizeToRectangle(0,0,int(scene.shape[1]*.1),scene.shape[0])
     scene_left=scene[ground_rect['y0']:ground_rect['y1'],ground_rect['x0']:ground_rect['x1']]
@@ -441,7 +445,7 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True,display=Fa
     else:
         ground_y=default_AI_values['ground_y']
     # dino
-    dino=matchSprites(scene,assets['dino'],find_all=False,sensitivity=(0.7,20))
+    dino=matchSprites(scene_to_match,assets['dino'],find_all=False,sensitivity=(0.7,20))
     has_dino=len(dino)==1
     if has_dino:
         dino_pos=getRectangleCenter(dino[0]['rect'])
@@ -450,11 +454,11 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True,display=Fa
         dino_pos={'x':None,'y':None}
         dino_rect=None
     # cactus
-    cactus=matchSprites(scene,assets['cactus'],find_all=True,sensitivity=(0.95,1))
+    cactus=matchSprites(scene_to_match,assets['cactus'],find_all=True,sensitivity=(0.95,1))
     cactus=simplifyOverlappingCactus(cactus,offset=2)
     amount_cactus=len(cactus)
     # bird
-    birds=matchSprites(scene,assets['bird'],find_all=True,sensitivity=(0.8,10))
+    birds=matchSprites(scene_to_match,assets['bird'],find_all=True,sensitivity=(0.8,10))
     amount_birds=len(birds)
     # numbers
     x_offset=scene_middle_x
@@ -468,7 +472,7 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True,display=Fa
     # has_hi=len(hi)==1
     amount_numbers=len(numbers)
     # gg
-    gg=matchSprites(scene,assets['game_over'],find_all=False,sensitivity=(0.8,10))
+    gg=matchSprites(scene_to_match,assets['game_over'],find_all=False,sensitivity=(0.8,10))
     has_gg=len(gg)==1
     
     # AI inputs 
