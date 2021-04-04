@@ -472,7 +472,7 @@ def parseFrame(scene,assets,context=None,subtract_default_inputs=True,display=Fa
     # has_hi=len(hi)==1
     amount_numbers=len(numbers)
     # gg
-    gg=matchSprites(scene_to_match,assets['game_over'],find_all=False,sensitivity=(0.8,10))
+    gg=matchSprites(scene,assets['game_over'],find_all=False,sensitivity=(0.8,50))
     has_gg=len(gg)==1
     
     # AI inputs 
